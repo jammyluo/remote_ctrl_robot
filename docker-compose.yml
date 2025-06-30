@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # 机器人控制服务器
+  robot-control:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+    volumes:
+      - ./config:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - robot-network
+
+  # Janus WebRTC服务器
+  janus:
+    image: meetecho/janus-gateway:latest
+    ports:
+      - "8088:8088"  # HTTP API
+      - "8188:8188"  # WebSocket
+      - "8004:8004/udp"  # RTP视频流
+      - "8006:8006/udp"  # RTP音频流
+    volumes:
+      - ./janus-config:/opt/janus/etc/janus
+    environment:
+      - JANUS_CONFIG_DIR=/opt/janus/etc/janus
+    restart: unless-stopped
+    networks:
+      - robot-network
+
+  # 机器人仿真环境 (可选)
+  robot-sim:
+    image: nvidia/cuda:11.8-base-ubuntu20.04
+    ports:
+      - "9090:9090"
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./robot-sim:/app
+    working_dir: /app
+    command: ["python3", "robot_simulator.py"]
+    restart: unless-stopped
+    networks:
+      - robot-network
+    depends_on:
+      - robot-control
+
+  # 监控面板 (可选)
+  monitoring:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    restart: unless-stopped
+    networks:
+      - robot-network
+
+networks:
+  robot-network:
+    driver: bridge
+
+volumes:
+  grafana-storage: 
