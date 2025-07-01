@@ -6,25 +6,20 @@ import (
 
 // WebRTC播放地址响应
 type WebRTCPlayURLResponse struct {
-	Success bool   `json:"success"`
-	URL     string `json:"url,omitempty"`
-	Message string `json:"message"`
+	Success bool     `json:"success"`
+	URLs    []string `json:"urls"` // 播放地址列表
+	Message string   `json:"message"`
 }
 
 // 控制命令
 type ControlCommand struct {
-	Type       string    `json:"type"`       // 命令类型: joint_position, velocity, emergency_stop, home
-	CommandID  string    `json:"command_id"` // 命令ID
-	Priority   int       `json:"priority"`   // 优先级 (1-10)
-	Timestamp  int64     `json:"timestamp"`  // 时间戳
-	JointPos   []float64 `json:"joint_pos"`  // 关节位置 (弧度)
-	Velocities []float64 `json:"velocities"` // 关节速度 (弧度/秒)
+	CommandID string `json:"command_id"` // 命令ID
+	Priority  int    `json:"priority"`   // 优先级 (1-10)
+	Timestamp int64  `json:"timestamp"`  // 时间戳
 }
 
 // 机器人状态
 type RobotState struct {
-	JointPositions  []float64  `json:"joint_positions"`  // 当前关节位置
-	JointVelocities []float64  `json:"joint_velocities"` // 当前关节速度
 	BasePosition    [3]float64 `json:"base_position"`    // 基座位置 [x, y, z]
 	BaseOrientation [4]float64 `json:"base_orientation"` // 基座方向 [x, y, z, w] (四元数)
 	BatteryLevel    float64    `json:"battery_level"`    // 电池电量 (%)
@@ -85,10 +80,71 @@ type RobotConfig struct {
 	MaxRetries   int    `json:"max_retries"`
 }
 
-// 安全配置
-type SecurityConfig struct {
-	EnableCORS      bool     `json:"enable_cors"`
-	AllowedOrigins  []string `json:"allowed_origins"`
-	APIKeyRequired  bool     `json:"api_key_required"`
-	RateLimitPerMin int      `json:"rate_limit_per_min"`
+// WebRTC流信息
+type WebRTCStream struct {
+	UCode     string `json:"ucode"`      // 机器人唯一标识
+	StreamID  int    `json:"stream_id"`  // 流ID
+	SessionID int64  `json:"session_id"` // Janus会话ID
+	HandleID  int64  `json:"handle_id"`  // Janus句柄ID
+	PlayURL   string `json:"play_url"`   // 播放地址
+	PushURL   string `json:"push_url"`   // 推流地址
+	Status    string `json:"status"`     // 状态: active, inactive, error
+	CreatedAt int64  `json:"created_at"` // 创建时间戳
+}
+
+// WebRTC注册请求
+type WebRTCRegisterRequest struct {
+	UCode string `json:"ucode"` // 机器人唯一标识
+}
+
+// WebRTC注册响应
+type WebRTCRegisterResponse struct {
+	Success bool          `json:"success"`
+	Stream  *WebRTCStream `json:"stream,omitempty"`
+	Message string        `json:"message"`
+}
+
+// 客户端类型
+type ClientType string
+
+const (
+	ClientTypeRobot    ClientType = "robot"    // 机器人
+	ClientTypeOperator ClientType = "operator" // 操作者
+)
+
+// 注册请求
+type RegisterRequest struct {
+	UCode      string     `json:"ucode"`       // 唯一标识
+	ClientType ClientType `json:"client_type"` // 客户端类型: robot, operator
+	Name       string     `json:"name"`        // 名称（可选）
+	Version    string     `json:"version"`     // 版本（可选）
+}
+
+// 注册响应
+type RegisterResponse struct {
+	Success    bool       `json:"success"`
+	UCode      string     `json:"ucode"`
+	ClientType ClientType `json:"client_type"`
+	Message    string     `json:"message"`
+	Error      string     `json:"error,omitempty"`
+	Timestamp  int64      `json:"timestamp"`
+}
+
+type RobotConnection struct {
+	UCode      string    `json:"ucode"` // 机器人UCode（对于操作者，这是要控制的机器人UCode）
+	Version    string    `json:"version"`
+	Connected  bool      `json:"connected"`
+	LastSeen   time.Time `json:"last_seen"`
+	RemoteAddr string    `json:"remote_addr"`
+}
+
+// 客户端信息
+type OperatorConnection struct {
+	OperatorID string    `json:"operator_id"` // 操作者标识（仅对操作者有效）
+	RobotUCode string    `json:"robot_ucode"` // 机器人UCode（对于操作者，这是要控制的机器人UCode）
+	Name       string    `json:"name"`
+	Version    string    `json:"version"`
+	Connected  bool      `json:"connected"`
+	LastSeen   time.Time `json:"last_seen"`
+	RemoteAddr string    `json:"remote_addr"`
 }

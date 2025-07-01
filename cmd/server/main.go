@@ -46,10 +46,18 @@ func main() {
 
 	// API路由
 	mux.HandleFunc("/api/v1/webrtc/play-url", apiHandlers.GetWebRTCPlayURL)
+	mux.HandleFunc("/api/v1/webrtc/register", apiHandlers.RegisterWebRTC)
+	mux.HandleFunc("/api/v1/webrtc/batch-register", apiHandlers.BatchRegisterWebRTC)
+	mux.HandleFunc("/api/v1/webrtc/stats", apiHandlers.GetWebRTCStats)
+	mux.HandleFunc("/api/v1/webrtc/cleanup", apiHandlers.CleanupWebRTCStreams)
+	mux.HandleFunc("/api/v1/webrtc/all-play-urls", apiHandlers.GetAllWebRTCPlayURLs)
 	mux.HandleFunc("/api/v1/control/command", apiHandlers.SendControlCommand)
 	mux.HandleFunc("/api/v1/control/status", apiHandlers.GetRobotStatus)
 	mux.HandleFunc("/api/v1/control/connection", apiHandlers.GetConnectionStatus)
 	mux.HandleFunc("/api/v1/system/status", apiHandlers.GetSystemStatus)
+	mux.HandleFunc("/api/v1/clients", apiHandlers.GetClients)
+	mux.HandleFunc("/api/v1/clients/info", apiHandlers.GetClientByUCode)
+	mux.HandleFunc("/api/v1/clients/online", apiHandlers.CheckUCodeOnline)
 	mux.HandleFunc("/health", apiHandlers.HealthCheck)
 
 	// WebSocket路由
@@ -86,6 +94,11 @@ func main() {
 			select {
 			case <-ticker.C:
 				robotService.CleanupDisconnectedClients()
+				// 清理无效的WebRTC流
+				cleaned := janusService.CleanupInactiveStreams()
+				if cleaned > 0 {
+					log.Info().Int("cleaned_streams", cleaned).Msg("Cleaned up inactive WebRTC streams")
+				}
 			}
 		}
 	}()

@@ -79,36 +79,57 @@ func (s *RobotService) Disconnect() error {
 
 // 发送命令到机器人
 func (s *RobotService) SendCommand(command models.ControlCommand) error {
+	s.mutex.Lock()
+	s.totalCommands++
+	s.lastCommandTime = time.Now()
+	s.mutex.Unlock()
+
+	// 检查连接状态
 	s.mutex.RLock()
-	if !s.connected {
+	if !s.connected || s.conn == nil {
 		s.mutex.RUnlock()
-		return fmt.Errorf("not connected to robot")
+		s.mutex.Lock()
+		s.failedCommands++
+		s.mutex.Unlock()
+
+		log.Error().
+			Str("command_id", command.CommandID).
+			Msg("Cannot send command: robot not connected")
+
+		return fmt.Errorf("robot not connected")
 	}
 	s.mutex.RUnlock()
 
-	// 发送命令
+	// 创建命令消息
 	message := models.WebSocketMessage{
 		Type:    "control_command",
-		Message: "Sending control command to robot",
+		Message: "Control command from operator",
 		Data:    command,
 	}
 
+	// 发送命令到真实机器人
 	if err := s.conn.WriteJSON(message); err != nil {
+		s.mutex.Lock()
 		s.failedCommands++
-		log.Error().Err(err).Msg("Failed to send command to robot")
-		return fmt.Errorf("failed to send command: %w", err)
+		s.mutex.Unlock()
+
+		log.Error().
+			Err(err).
+			Str("command_id", command.CommandID).
+			Msg("Failed to send command to robot")
+
+		return fmt.Errorf("failed to send command to robot: %w", err)
 	}
 
-	s.totalCommands++
-	s.lastCommandTime = time.Now()
+	// 记录成功发送的命令
+	log.Info().
+		Str("command_id", command.CommandID).
+		Int("priority", command.Priority).
+		Int64("timestamp", command.Timestamp).
+		Msg("Command sent to robot successfully")
 
 	// 广播给所有客户端
 	s.broadcastToClients(message)
-
-	log.Info().
-		Str("command_id", command.CommandID).
-		Str("command_type", command.Type).
-		Msg("Command sent to robot")
 
 	return nil
 }
