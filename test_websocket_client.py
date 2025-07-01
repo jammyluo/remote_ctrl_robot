@@ -36,11 +36,64 @@ class RobotWebSocketClient:
                 self.registered = True
             elif msg_type == "error":
                 print(f"❌ 错误: {data.get('message', 'Unknown error')}")
+                if "error_type" in data.get("data", {}):
+                    print(f"   错误类型: {data['data']['error_type']}")
             elif msg_type == "pong":
                 print("🏓 收到pong响应")
+            elif msg_type == "command_response":
+                print(f"✅ 控制命令响应: {data.get('message', '')}")
+                if "data" in data and "command_id" in data["data"]:
+                    print(f"   命令ID: {data['data']['command_id']}")
+            elif msg_type == "status_response":
+                print("📊 收到机器人状态响应")
+                if "data" in data:
+                    status_data = data["data"]
+                    print(f"   连接状态: {status_data.get('connected', 'unknown')}")
+                    print(f"   活跃客户端: {status_data.get('active_clients', 0)}")
+                    print(f"   总命令数: {status_data.get('total_commands', 0)}")
+                    print(f"   失败命令数: {status_data.get('failed_commands', 0)}")
+                    if "latency_ms" in status_data:
+                        print(f"   延迟: {status_data['latency_ms']}ms")
+            elif msg_type == "control_command":
+                print("🤖 收到控制命令通知")
+                if "data" in data:
+                    cmd_data = data["data"]
+                    print(f"   命令类型: {cmd_data.get('type', 'unknown')}")
+                    print(f"   命令ID: {cmd_data.get('command_id', 'unknown')}")
+                    print(f"   优先级: {cmd_data.get('priority', 0)}")
+            elif msg_type == "broadcast":
+                print("📢 收到广播消息")
+                print(f"   广播内容: {data.get('message', '')}")
+            elif msg_type == "system_notification":
+                print("🔔 收到系统通知")
+                print(f"   通知内容: {data.get('message', '')}")
+                if "data" in data:
+                    print(f"   通知数据: {data['data']}")
+            elif msg_type == "robot_status_update":
+                print("🤖 收到机器人状态更新")
+                if "data" in data:
+                    robot_data = data["data"]
+                    print(f"   状态: {robot_data.get('status', 'unknown')}")
+                    print(f"   电池电量: {robot_data.get('battery_level', 0)}%")
+                    print(f"   温度: {robot_data.get('temperature', 0)}°C")
+                    if "joint_positions" in robot_data:
+                        print(f"   关节位置: {robot_data['joint_positions']}")
+            elif msg_type == "connection_status":
+                print("🔗 收到连接状态更新")
+                if "data" in data:
+                    conn_data = data["data"]
+                    print(f"   连接状态: {conn_data.get('connected', 'unknown')}")
+                    print(f"   活跃客户端: {conn_data.get('active_clients', 0)}")
+            else:
+                print(f"📨 收到未知类型消息: {msg_type}")
+                if "data" in data:
+                    print(f"   数据内容: {data['data']}")
                 
         except json.JSONDecodeError:
             print(f"📨 收到原始消息: {message}")
+        except Exception as e:
+            print(f"❌ 处理消息时出错: {e}")
+            print(f"   原始消息: {message}")
 
     def on_error(self, ws, error):
         """处理错误"""
@@ -97,6 +150,17 @@ class RobotWebSocketClient:
             self.ws.send(json.dumps(command))
             print(f"📤 发送控制命令: {command_type}")
 
+    def show_connection_status(self):
+        """显示当前连接状态"""
+        print("\n" + "="*50)
+        print("🔗 连接状态信息:")
+        print(f"   服务器地址: {self.server_url}")
+        print(f"   注册UCODE: {self.ucode}")
+        print(f"   连接状态: {'✅ 已连接' if self.connected else '❌ 未连接'}")
+        print(f"   注册状态: {'✅ 已注册' if self.registered else '❌ 未注册'}")
+        print(f"   WebSocket对象: {'✅ 有效' if self.ws else '❌ 无效'}")
+        print("="*50)
+
     def send_status_request(self):
         """发送状态请求"""
         if self.ws and self.connected:
@@ -106,6 +170,9 @@ class RobotWebSocketClient:
             }
             self.ws.send(json.dumps(status_msg))
             print("📤 发送状态请求")
+        else:
+            print("❌ 连接未建立，无法发送状态请求")
+            self.show_connection_status()
 
     def start_heartbeat(self):
         """启动心跳线程"""
@@ -131,10 +198,11 @@ class RobotWebSocketClient:
                     print("4. 发送回零命令")
                     print("5. 请求机器人状态")
                     print("6. 发送ping")
+                    print("7. 显示连接状态")
                     print("0. 退出")
                     print("="*50)
                     
-                    choice = input("请选择操作 (0-6): ").strip()
+                    choice = input("请选择操作 (0-7): ").strip()
                     
                     if choice == "0":
                         print("👋 退出程序")
@@ -153,6 +221,8 @@ class RobotWebSocketClient:
                         self.send_status_request()
                     elif choice == "6":
                         self.send_ping()
+                    elif choice == "7":
+                        self.show_connection_status()
                     else:
                         print("❌ 无效选择，请重试")
                         
