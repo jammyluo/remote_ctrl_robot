@@ -16,6 +16,7 @@ class RobotClient:
         self.server_url = server_url
         self.ws = None
         self.connected = False
+        self.sequence = 1
         
     def on_message(self, ws, message):
         """处理接收到的消息"""
@@ -42,12 +43,17 @@ class RobotClient:
         
         # 发送注册消息
         register_msg = {
-            "type": "register",
+            "type": "Request",
+            "command": "CMD_REGISTER",
+            "sequence": self.sequence,
             "ucode": self.ucode,
-            "client_type": "robot"
+            "client_type": "robot",
+            "version": "1.0.0",
+
         }
         ws.send(json.dumps(register_msg))
         print(f"📤 发送注册消息: {json.dumps(register_msg, ensure_ascii=False)}")
+        self.sequence += 1
     
     def connect(self):
         """连接到服务器"""
@@ -90,21 +96,42 @@ class RobotClient:
         """发送ping消息"""
         if self.connected and self.ws:
             ping_msg = {
-                "type": "ping",
-                "message": "ping"
+                "type": "Request",
+                "command": "CMD_PING",
+                "sequence": self.sequence,
+                "ucode": self.ucode,
+                "client_type": "robot",
+                "version": "1.0.0",
+                "data": {
+                }
             }
             self.ws.send(json.dumps(ping_msg))
-            print(f"📤 发送ping消息")
+            print(f"📤 发送ping消息: {json.dumps(ping_msg, ensure_ascii=False)}")
+            self.sequence += 1
     
     def send_status_request(self):
         """发送状态请求"""
         if self.connected and self.ws:
             status_msg = {
-                "type": "status_request",
-                "message": "Request robot status"
+                "type": "Request",
+                "command": "CMD_UPDATE_ROBOT_STATUS",
+                "sequence": self.sequence,
+                "ucode": self.ucode,
+                "client_type": "robot",
+                "version": "1.0.0",
+                "data": {
+                    "status": "idle",
+                    "battery_level": 100,
+                    "temperature": 25,
+                    "base_position": [0, 0, 0],
+                    "base_orientation": [0, 0, 0, 0],
+                    "error_code": 0,
+                    "error_message": ""
+                }
             }
             self.ws.send(json.dumps(status_msg))
-            print(f"📤 发送状态请求")
+            print(f"📤 发送状态请求: {json.dumps(status_msg, ensure_ascii=False)}")
+            self.sequence += 1
     
     def keep_alive(self, interval=30):
         """保持连接活跃"""

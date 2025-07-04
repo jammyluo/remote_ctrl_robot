@@ -21,8 +21,8 @@ type APIHandlers struct {
 
 func NewAPIHandlers(janusService *services.JanusService, robotService *services.RobotService, wsHandlers *WebSocketHandlers) *APIHandlers {
 	return &APIHandlers{
-		janusService: janusService,
 		robotService: robotService,
+		janusService: janusService,
 		wsHandlers:   wsHandlers,
 		startTime:    time.Now(),
 	}
@@ -117,12 +117,12 @@ func (h *APIHandlers) SendControlCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var command models.ControlCommand
+	var command models.CMD_CONTROL_ROBOT
 	if err := json.NewDecoder(r.Body).Decode(&command); err != nil {
 		log.Error().Err(err).Msg("Failed to parse control command")
-		response := models.ControlResponse{
+		response := models.CMD_RESPONSE{
 			Success: false,
-			Error:   "Invalid command format: " + err.Error(),
+			Message: "Invalid command format: " + err.Error(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -133,9 +133,9 @@ func (h *APIHandlers) SendControlCommand(w http.ResponseWriter, r *http.Request)
 	// 从查询参数获取UCODE
 	ucode := r.URL.Query().Get("ucode")
 	if ucode == "" {
-		response := models.ControlResponse{
+		response := models.CMD_RESPONSE{
 			Success: false,
-			Error:   "UCODE parameter is required",
+			Message: "UCODE parameter is required",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -145,9 +145,9 @@ func (h *APIHandlers) SendControlCommand(w http.ResponseWriter, r *http.Request)
 
 	// 检查机器人是否在线
 	if !h.isRobotOnline(ucode) {
-		response := models.ControlResponse{
+		response := models.CMD_RESPONSE{
 			Success: false,
-			Error:   fmt.Sprintf("Robot with UCODE %s is not online", ucode),
+			Message: fmt.Sprintf("Robot with UCODE %s is not online", ucode),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -158,9 +158,9 @@ func (h *APIHandlers) SendControlCommand(w http.ResponseWriter, r *http.Request)
 	// 验证命令
 	if err := h.validateCommand(&command); err != nil {
 		log.Error().Err(err).Str("ucode", ucode).Msg("Command validation failed")
-		response := models.ControlResponse{
+		response := models.CMD_RESPONSE{
 			Success: false,
-			Error:   "Command validation failed: " + err.Error(),
+			Message: "Command validation failed: " + err.Error(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -172,9 +172,9 @@ func (h *APIHandlers) SendControlCommand(w http.ResponseWriter, r *http.Request)
 	err := h.sendCommandToRobot(ucode, command)
 	if err != nil {
 		log.Error().Err(err).Str("ucode", ucode).Msg("Failed to send command to robot")
-		response := models.ControlResponse{
+		response := models.CMD_RESPONSE{
 			Success: false,
-			Error:   "Failed to send command: " + err.Error(),
+			Message: "Failed to send command: " + err.Error(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -183,11 +183,11 @@ func (h *APIHandlers) SendControlCommand(w http.ResponseWriter, r *http.Request)
 	}
 
 	log.Info().
-		Str("command_id", command.CommandID).
+		Str("command_id", command.Action).
 		Str("ucode", ucode).
 		Msg("Control command sent successfully")
 
-	response := models.ControlResponse{
+	response := models.CMD_RESPONSE{
 		Success: true,
 		Message: fmt.Sprintf("Command sent successfully to robot %s", ucode),
 	}
@@ -210,7 +210,6 @@ func (h *APIHandlers) GetRobotStatus(w http.ResponseWriter, r *http.Request) {
 			Status:       "error",
 			ErrorCode:    400,
 			ErrorMessage: "UCODE parameter is required",
-			Timestamp:    time.Now().UnixMilli(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -224,7 +223,6 @@ func (h *APIHandlers) GetRobotStatus(w http.ResponseWriter, r *http.Request) {
 			Status:       "offline",
 			ErrorCode:    404,
 			ErrorMessage: fmt.Sprintf("Robot with UCODE %s is not online", ucode),
-			Timestamp:    time.Now().UnixMilli(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -242,7 +240,6 @@ func (h *APIHandlers) GetRobotStatus(w http.ResponseWriter, r *http.Request) {
 		Status:          "idle",
 		ErrorCode:       0,
 		ErrorMessage:    "",
-		Timestamp:       time.Now().UnixMilli(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -251,82 +248,59 @@ func (h *APIHandlers) GetRobotStatus(w http.ResponseWriter, r *http.Request) {
 
 // 获取系统状态
 func (h *APIHandlers) GetSystemStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	// if r.Method != "GET" {
+	// 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// 	return
+	// }
 
-	// 检查Janus状态
-	janusStatus := "healthy"
-	if err := h.janusService.CheckStatus(); err != nil {
-		janusStatus = "error"
-		log.Error().Err(err).Msg("Janus status check failed")
-	}
+	// // 检查Janus状态
+	// janusStatus := "healthy"
+	// if err := h.janusService.CheckStatus(); err != nil {
+	// 	janusStatus = "error"
+	// 	log.Error().Err(err).Msg("Janus status check failed")
+	// }
 
-	// 获取机器人连接状态
-	robotStatus := "connected"
-	connStatus := h.robotService.GetConnectionStatus()
-	if !connStatus.Connected {
-		robotStatus = "disconnected"
-	}
+	// // 获取机器人连接状态
+	// robotStatus := "connected"
+	// connStatus := h.wsHandlers.GetConnectionStatus()
+	// if !connStatus.Connected {
+	// 	robotStatus = "disconnected"
+	// }
 
-	// 获取在线机器人列表
-	onlineRobots := h.getOnlineRobots()
+	// // 获取在线机器人列表
+	// onlineRobots := h.getOnlineRobots()
 
-	status := models.SystemStatus{
-		ServerTime:    time.Now(),
-		Uptime:        int64(time.Since(h.startTime).Seconds()),
-		ActiveClients: h.robotService.GetActiveClientsCount(),
-		RobotStatus:   robotStatus,
-		JanusStatus:   janusStatus,
-	}
+	// status := models.SystemStatus{
+	// 	ServerTime:    time.Now(),
+	// 	Uptime:        int64(time.Since(h.startTime).Seconds()),
+	// 	ActiveClients: h.wsHandlers.GetActiveClientsCount(),
+	// 	RobotStatus:   robotStatus,
+	// 	JanusStatus:   janusStatus,
+	// }
 
-	// 添加在线机器人信息
-	statusData := map[string]interface{}{
-		"server_time":    status.ServerTime,
-		"uptime_seconds": status.Uptime,
-		"active_clients": status.ActiveClients,
-		"robot_status":   status.RobotStatus,
-		"janus_status":   status.JanusStatus,
-		"online_robots":  onlineRobots,
-		"total_robots":   len(onlineRobots),
-	}
+	// // 添加在线机器人信息
+	// statusData := map[string]interface{}{
+	// 	"server_time":    status.ServerTime,
+	// 	"uptime_seconds": status.Uptime,
+	// 	"active_clients": status.ActiveClients,
+	// 	"robot_status":   status.RobotStatus,
+	// 	"janus_status":   status.JanusStatus,
+	// 	"online_robots":  onlineRobots,
+	// 	"total_robots":   len(onlineRobots),
+	// }
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(statusData)
+	// w.Header().Set("Content-Type", "application/json")
+	// json.NewEncoder(w).Encode(statusData)
 }
 
 // 获取连接状态
 func (h *APIHandlers) GetConnectionStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 
-	status := h.robotService.GetConnectionStatus()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
 }
 
 // 验证控制命令
-func (h *APIHandlers) validateCommand(command *models.ControlCommand) error {
+func (h *APIHandlers) validateCommand(command *models.CMD_CONTROL_ROBOT) error {
 	// 检查命令类型
-	validTypes := map[string]bool{
-		"joint_position": true,
-		"velocity":       true,
-		"emergency_stop": true,
-		"home":           true,
-	}
-
-	if !validTypes[command.CommandID] {
-		return fmt.Errorf("invalid command type: %s", command.CommandID)
-	}
-
-	// 检查优先级
-	if command.Priority < 1 || command.Priority > 10 {
-		return fmt.Errorf("priority must be between 1 and 10")
-	}
-
 	return nil
 }
 
@@ -352,14 +326,14 @@ func (h *APIHandlers) isRobotOnline(ucode string) bool {
 	h.wsHandlers.mutex.RLock()
 	defer h.wsHandlers.mutex.RUnlock()
 
-	_, exists := h.wsHandlers.robotUcodeConn[ucode]
+	_, exists := h.wsHandlers.Ucode2Conn[ucode]
 	return exists
 }
 
 // 发送命令到指定机器人
-func (h *APIHandlers) sendCommandToRobot(ucode string, command models.ControlCommand) error {
+func (h *APIHandlers) sendCommandToRobot(ucode string, command models.CMD_CONTROL_ROBOT) error {
 	h.wsHandlers.mutex.RLock()
-	conn, exists := h.wsHandlers.robotUcodeConn[ucode]
+	conn, exists := h.wsHandlers.Ucode2Conn[ucode]
 	h.wsHandlers.mutex.RUnlock()
 
 	if !exists {
@@ -367,9 +341,13 @@ func (h *APIHandlers) sendCommandToRobot(ucode string, command models.ControlCom
 	}
 
 	message := models.WebSocketMessage{
-		Type:    "control_command",
-		Message: "Control command from API",
-		Data:    command,
+		Type:       models.WSMessageTypeRequest,
+		Command:    models.CMD_TYPE_CONTROL_ROBOT,
+		Sequence:   0,
+		UCode:      ucode,
+		ClientType: models.ClientTypeOperator,
+		Version:    "1.0.0",
+		Data:       command,
 	}
 
 	return conn.WriteJSON(message)
@@ -380,8 +358,8 @@ func (h *APIHandlers) getOnlineRobots() []string {
 	h.wsHandlers.mutex.RLock()
 	defer h.wsHandlers.mutex.RUnlock()
 
-	robots := make([]string, 0, len(h.wsHandlers.robotUcodeConn))
-	for ucode := range h.wsHandlers.robotUcodeConn {
+	robots := make([]string, 0, len(h.wsHandlers.Ucode2Conn))
+	for ucode := range h.wsHandlers.Ucode2Conn {
 		robots = append(robots, ucode)
 	}
 	return robots
@@ -492,16 +470,14 @@ func (h *APIHandlers) GetAllWebRTCPlayURLs(w http.ResponseWriter, r *http.Reques
 
 // 获取客户端列表
 func (h *APIHandlers) GetClients(w http.ResponseWriter, r *http.Request) {
-	clients := h.wsHandlers.GetAllClients()
+	robotClients := h.wsHandlers.GetAllRobotConnections()
+	operatorClients := h.wsHandlers.GetAllOperatorConnections()
 
 	response := map[string]interface{}{
-		"success": true,
-		"clients": clients,
-		"stats": map[string]interface{}{
-			"total":     len(clients),
-			"robots":    h.wsHandlers.GetClientsCountByType(models.ClientTypeRobot),
-			"operators": h.wsHandlers.GetClientsCountByType(models.ClientTypeOperator),
-		},
+		"success":   true,
+		"total":     len(robotClients) + len(operatorClients),
+		"robots":    robotClients,
+		"operators": operatorClients,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -516,7 +492,7 @@ func (h *APIHandlers) GetClientByUCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := h.wsHandlers.GetClientByUCode(ucode)
+	client := h.wsHandlers.GetClientByUcode(ucode)
 	if client == nil {
 		response := map[string]interface{}{
 			"success": false,
@@ -544,7 +520,7 @@ func (h *APIHandlers) CheckUCodeOnline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isOnline := h.wsHandlers.IsUCodeOnline(ucode)
+	isOnline := h.wsHandlers.GetClientByUcode(ucode) != nil
 
 	response := map[string]interface{}{
 		"success": true,

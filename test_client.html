@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>远程控制测试客户端</title>
+    <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -85,12 +86,6 @@
             margin-bottom: 5px;
             font-weight: bold;
         }
-        .command-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin: 15px 0;
-        }
         .log {
             background: #f8f9fa;
             border: 1px solid #ddd;
@@ -131,43 +126,6 @@
             padding: 8px;
             border-radius: 4px;
             text-align: center;
-        }
-        .direction-control {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-            margin: 15px 0;
-        }
-        .direction-row {
-            display: flex;
-            gap: 10px;
-        }
-        .direction-btn {
-            width: 80px;
-            height: 80px;
-            background: #2196f3;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: all 0.2s;
-            user-select: none;
-            -webkit-user-select: none;
-        }
-        .direction-btn:hover {
-            background: #1976d2;
-            transform: scale(1.05);
-        }
-        .direction-btn:active {
-            background: #0d47a1;
-            transform: scale(0.95);
-        }
-        .direction-btn.active {
-            background: #0d47a1;
-            box-shadow: 0 0 10px rgba(13, 71, 161, 0.5);
         }
         .action-control {
             display: flex;
@@ -223,6 +181,23 @@
             border-radius: 4px;
             font-size: 14px;
         }
+        /* 摇杆区样式 */
+        #joystickZone {
+            width: 220px;
+            height: 220px;
+            margin: 0 auto 10px auto;
+            background: #e3eafc;
+            border-radius: 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .joystick-values {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
@@ -238,7 +213,7 @@
             
             <div class="form-group">
                 <label>机器人UCode (要控制的机器人):</label>
-                <input type="text" id="robotUCode" value="test_robot_001" placeholder="输入要控制的机器人唯一标识" />
+                <input type="text" id="robotUCode" value="123456" placeholder="输入要控制的机器人唯一标识" />
             </div>
             
             <div class="form-group">
@@ -271,42 +246,10 @@
                 <button onclick="disconnect()">断开</button>
             </div>
             
-            <h3>方向控制</h3>
-            <div class="direction-control">
-                <div class="direction-row">
-                    <button class="direction-btn" id="forwardBtn" 
-                            onmousedown="startMove('forward')" 
-                            onmouseup="stopMove()" 
-                            ontouchstart="startMove('forward')" 
-                            ontouchend="stopMove()">
-                        ⬆️ 向前
-                    </button>
-                </div>
-                <div class="direction-row">
-                    <button class="direction-btn" id="leftBtn" 
-                            onmousedown="startMove('left')" 
-                            onmouseup="stopMove()" 
-                            ontouchstart="startMove('left')" 
-                            ontouchend="stopMove()">
-                        ⬅️ 向左
-                    </button>
-                    <button class="direction-btn" id="rightBtn" 
-                            onmousedown="startMove('right')" 
-                            onmouseup="stopMove()" 
-                            ontouchstart="startMove('right')" 
-                            ontouchend="stopMove()">
-                        ➡️ 向右
-                    </button>
-                </div>
-                <div class="direction-row">
-                    <button class="direction-btn" id="backwardBtn" 
-                            onmousedown="startMove('backward')" 
-                            onmouseup="stopMove()" 
-                            ontouchstart="startMove('backward')" 
-                            ontouchend="stopMove()">
-                        ⬇️ 向后
-                    </button>
-                </div>
+            <h3>方向控制（摇杆）</h3>
+            <div id="joystickZone"></div>
+            <div class="joystick-values">
+                vx: <span id="vxValue">0.00</span> m/s &nbsp; vy: <span id="vyValue">0.00</span> m/s
             </div>
             
             <h3>动作控制</h3>
@@ -368,13 +311,9 @@
                 </div>
             </div>
             
-            <div id="clientInfo" class="webrtc-info" style="display: none;">
-                <!-- 客户端信息将在这里显示 -->
-            </div>
+            <div id="clientInfo" class="webrtc-info" style="display: none;"></div>
             
-            <div id="clientStats" class="webrtc-info" style="display: none;">
-                <!-- 客户端统计信息将在这里显示 -->
-            </div>
+            <div id="clientStats" class="webrtc-info" style="display: none;"></div>
             
             <h3>WebRTC视频流</h3>
             <div class="video-container" id="videoContainer">
@@ -401,31 +340,25 @@
         let isConnected = false;
         let isRegistered = false;
         let currentUCode = '';
-        let currentDirection = null;
         let isShooting = false;
-        let moveInterval = null;
         let shootInterval = null;
+        let joystick = null;
+        let lastVx = 0, lastVy = 0;
 
         // 连接并注册WebSocket
         function connectAndRegister() {
             const serverUrl = 'http://localhost:8000'; // 固定服务器地址
             const wsUrl = serverUrl.replace('http', 'ws') + '/ws/control';
-            
             log('尝试连接到: ' + wsUrl);
-            
             try {
                 ws = new WebSocket(wsUrl);
                 log('WebSocket对象已创建，状态: ' + ws.readyState);
-                
                 ws.onopen = function() {
                     isConnected = true;
                     log('✅ WebSocket连接已建立，状态: ' + ws.readyState);
                     updateConnectionStatus('已连接', 'success');
-                    
-                    // 连接成功后自动注册
                     setTimeout(registerClient, 500);
                 };
-                
                 ws.onmessage = function(event) {
                     log('收到原始消息: ' + event.data);
                     try {
@@ -435,19 +368,16 @@
                         log('❌ 解析消息失败: ' + error.message);
                     }
                 };
-                
                 ws.onclose = function(event) {
                     isConnected = false;
                     isRegistered = false;
                     log('❌ WebSocket连接已断开，代码: ' + event.code + ', 原因: ' + event.reason);
                     updateConnectionStatus('连接已断开', 'error');
                 };
-                
                 ws.onerror = function(error) {
                     log('❌ WebSocket连接错误: ' + error);
                     updateConnectionStatus('连接错误', 'error');
                 };
-                
             } catch (error) {
                 log('❌ 创建WebSocket连接失败: ' + error.message);
                 console.error('连接错误详情:', error);
@@ -456,38 +386,11 @@
 
         // 断开连接
         function disconnect() {
-            // 清除所有定时器
-            if (moveInterval) {
-                clearInterval(moveInterval);
-                moveInterval = null;
-            }
             if (shootInterval) {
                 clearInterval(shootInterval);
                 shootInterval = null;
             }
-            
-            // 重置状态
-            currentDirection = null;
-            isShooting = false;
-            
-            // 清除所有按钮的视觉反馈
-            const directionButtons = ['forwardBtn', 'backwardBtn', 'leftBtn', 'rightBtn'];
-            directionButtons.forEach(btnId => {
-                const button = document.getElementById(btnId);
-                if (button) {
-                    button.classList.remove('active');
-                }
-            });
-            
-            const shootButton = document.getElementById('shootBtn');
-            if (shootButton) {
-                shootButton.classList.remove('active');
-            }
-            
-            // 清除动作状态
-            updateCurrentAction(null);
-            
-            // 断开WebSocket连接
+            stopJoystickMove();
             if (ws) {
                 ws.close();
             }
@@ -495,54 +398,76 @@
 
         // 注册客户端（内部函数，连接成功后自动调用）
         function registerClient() {
-            log('开始绑定机器人...');
+            log('开始注册操作者...');
             log('连接状态: ' + (isConnected ? '已连接' : '未连接'));
             log('WebSocket对象: ' + (ws ? '存在' : '不存在'));
-            
             if (!isConnected) {
                 log('错误: 未连接到服务器');
                 return;
             }
-
             if (!ws) {
                 log('错误: WebSocket对象不存在');
                 return;
             }
-
             const robotUCode = document.getElementById('robotUCode').value;
             const operatorId = document.getElementById('operatorId').value;
             const clientName = document.getElementById('clientName').value;
             const clientVersion = document.getElementById('clientVersion').value;
-
+            currentUCode = operatorId;
             log('机器人UCode: ' + robotUCode);
             log('操作者标识: ' + operatorId);
             log('操作者名称: ' + clientName);
             log('客户端版本: ' + clientVersion);
-
             if (!robotUCode) {
                 log('错误: 请输入机器人UCode');
                 return;
             }
-
             if (!operatorId) {
                 log('错误: 请输入操作者标识');
                 return;
             }
-
             const message = {
-                type: 'register',
-                robot_ucode: robotUCode,  // 使用机器人UCode
+                type: 'Request',
+                command: 'CMD_REGISTER',
+                sequence: 1,
+                ucode: operatorId,
                 client_type: 'operator',
-                name: clientName,
                 version: clientVersion,
-                operator_id: operatorId  // 添加操作者标识
+                data: {
+                    name: clientName,
+                    operator_id: operatorId
+                }
             };
-
             try {
                 const messageStr = JSON.stringify(message);
+                log('准备发送注册消息: ' + messageStr);
+                log('WebSocket readyState: ' + ws.readyState);
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(messageStr);
+                    log('✅ 注册消息发送成功');
+                } else {
+                    log('❌ WebSocket未处于OPEN状态，当前状态: ' + ws.readyState);
+                }
+            } catch (error) {
+                log('❌ 发送注册消息时发生错误: ' + error.message);
+                console.error('发送错误详情:', error);
+            }
+            // 发送绑定消息
+            const bindMessage = {
+                type: 'Request',
+                command: 'CMD_BIND_ROBOT',
+                sequence: 1,
+                ucode: operatorId,
+                client_type: 'operator',
+                version: clientVersion,
+                data: {
+                    ucode: robotUCode
+                }
+            };
+            try {
+                const messageStr = JSON.stringify(bindMessage);
                 log('准备发送绑定消息: ' + messageStr);
                 log('WebSocket readyState: ' + ws.readyState);
-                
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.send(messageStr);
                     log('✅ 绑定消息发送成功');
@@ -555,226 +480,185 @@
             }
         }
 
-        // 开始移动
-        function startMove(direction) {
-            if (!isConnected || !isRegistered) {
-                log('错误: 未连接或未注册');
-                return;
-            }
-
-            // 如果已经在移动，先停止之前的移动
-            if (moveInterval) {
-                clearInterval(moveInterval);
-            }
-
-            currentDirection = direction;
-            log('开始移动: ' + direction);
-
-            // 添加视觉反馈
-            const buttonId = direction + 'Btn';
-            const button = document.getElementById(buttonId);
-            if (button) {
-                button.classList.add('active');
-            }
-
-            // 更新动作状态
-            updateCurrentAction('移动: ' + direction);
-
-            // 立即发送一次开始命令
-            sendMoveCommand(direction, 'start');
-
-            // 设置定时器，每500毫秒发送一次移动命令
-            moveInterval = setInterval(() => {
-                sendMoveCommand(direction, 'continue');
-            }, 500);
+        // 摇杆相关
+        function clamp(val, min, max) {
+            return Math.max(min, Math.min(max, val));
         }
-
-        // 停止移动
-        function stopMove() {
-            if (!isConnected || !isRegistered || !currentDirection) {
-                return;
-            }
-
-            // 清除定时器
-            if (moveInterval) {
-                clearInterval(moveInterval);
-                moveInterval = null;
-            }
-
-            // 移除视觉反馈
-            const buttonId = currentDirection + 'Btn';
-            const button = document.getElementById(buttonId);
-            if (button) {
-                button.classList.remove('active');
-            }
-
-            // 发送停止命令
-            sendMoveCommand(currentDirection, 'stop');
-            log('停止移动: ' + currentDirection);
-            currentDirection = null;
-            
-            // 更新动作状态
-            updateCurrentAction(null);
-        }
-
-        // 发送移动命令
-        function sendMoveCommand(direction, action) {
+        function sendJoystickMove(vx, vy) {
+            if (!isConnected || !isRegistered) return;
+            if (vx === lastVx && vy === lastVy) return;
+            lastVx = vx; lastVy = vy;
+            document.getElementById('vxValue').textContent = vx.toFixed(2);
+            document.getElementById('vyValue').textContent = vy.toFixed(2);
             const command = {
-                type: 'move',
-                direction: direction,
-                action: action,
-                priority: 5,
-                command_id: 'move_' + direction + '_' + action + '_' + Date.now(),
-                timestamp: Date.now()
+                action: "Move",
+                timestamp: Date.now().timestamp,
+                params: {
+                    "priority": "1",
+                    "vx": vx.toString(),
+                    "vy": vy.toString(),
+                    "vyaw": "0",
+                }
             };
-
             const message = {
-                type: 'control_command',
-                message: action + ' move: ' + direction,
+                type: 'Request',
+                command: 'CMD_CONTROL_ROBOT',
+                sequence: 222,
+                ucode: currentUCode,
+                client_type: 'operator',
+                version: '1.0.0',
                 data: command
             };
-
             ws.send(JSON.stringify(message));
         }
+        function stopJoystickMove() {
+            sendJoystickMove(0, 0);
+            lastVx = 0; lastVy = 0;
+            document.getElementById('vxValue').textContent = '0.00';
+            document.getElementById('vyValue').textContent = '0.00';
+        }
+        window.onload = function() {
+            log('页面加载完成，准备连接服务器...');
+            joystick = nipplejs.create({
+                zone: document.getElementById('joystickZone'),
+                mode: 'dynamic',
+                color: 'red',
+                size: 180,
+                threshold: 0.1,
+                restOpacity: 0.5
+            });
+            joystick.on('move', function(evt, data) {
+                if (!data) return;
+                
+                let angle = data.angle ? data.angle.radian : 0;
+                let distance = data.distance || 0;
+                
+                // nipplejs的distance是0-100的标准化距离
+                // 直接使用这个值作为强度系数
+                let norm = distance / 100;
+                // 直接使用三角函数计算方向
+                let cosVal = Math.cos(angle);
+                let sinVal = Math.sin(angle);
+                
+                // vx: 前进为正，后退为负
+                // vy: 左转为负，右转为正
+                let vy = clamp(cosVal * norm * 1.0, -1.0, 1.0); 
+                let vx = 0;
+                if (sinVal * norm  > 0) {
+                    vx = clamp(sinVal * norm * 3.8, -2.5, 3.8); 
+                } else {
+                    vx = clamp(sinVal * norm * 2.5, -2.5, 3.8); 
+                }
+                sendJoystickMove(vx, vy);
+                updateCurrentAction('移动');
+            });
+            joystick.on('end', function() {
+                stopJoystickMove();
+                updateCurrentAction(null);
+            });
+        };
 
-        // 开始射击
+        // 射击相关
         function startShoot() {
             if (!isConnected || !isRegistered) {
                 log('错误: 未连接或未注册');
                 return;
             }
-
-            // 如果已经在射击，先停止之前的射击
             if (shootInterval) {
                 clearInterval(shootInterval);
             }
-
             isShooting = true;
             log('开始射击');
-
-            // 添加视觉反馈
             const button = document.getElementById('shootBtn');
             if (button) {
                 button.classList.add('active');
             }
-
-            // 更新动作状态
             updateCurrentAction('射击');
-
-            // 立即发送一次开始命令
-            sendShootCommand('start');
-
-            // 设置定时器，每500毫秒发送一次射击命令
+            sendShootCommand('shoot');
             shootInterval = setInterval(() => {
-                sendShootCommand('continue');
+                sendShootCommand('shoot');
             }, 500);
         }
-
-        // 停止射击
         function stopShoot() {
             if (!isConnected || !isRegistered || !isShooting) {
                 return;
             }
-
-            // 清除定时器
             if (shootInterval) {
                 clearInterval(shootInterval);
                 shootInterval = null;
             }
-
-            // 移除视觉反馈
             const button = document.getElementById('shootBtn');
             if (button) {
                 button.classList.remove('active');
             }
-
-            // 发送停止命令
-            sendShootCommand('stop');
             log('停止射击');
             isShooting = false;
-            
-            // 更新动作状态
             updateCurrentAction(null);
         }
-
-        // 发送射击命令
         function sendShootCommand(action) {
             const command = {
-                type: 'shoot',
                 action: action,
-                priority: 7,
-                command_id: 'shoot_' + action + '_' + Date.now(),
-                timestamp: Date.now()
+                timestamp: Date.now().timestamp
             };
-
             const message = {
-                type: 'control_command',
-                message: action + ' shooting',
+                type: 'Request',
+                command: 'CMD_CONTROL_ROBOT',
+                sequence: 2220,
+                ucode: currentUCode,
+                client_type: 'operator',
+                version: '1.0.0',
                 data: command
             };
-
             ws.send(JSON.stringify(message));
         }
-
         // 发送控制命令
         function sendCommand() {
             if (!isConnected || !isRegistered) {
                 log('错误: 未连接或未注册');
                 return;
             }
-
             const commandType = document.getElementById('commandType').value;
             const priority = parseInt(document.getElementById('priority').value);
-            
             const command = {
                 type: commandType,
                 priority: priority,
                 command_id: 'cmd_' + Date.now(),
                 timestamp: Date.now()
             };
-
             const message = {
                 type: 'control_command',
                 message: 'Control command from client',
                 data: command
             };
-
             ws.send(JSON.stringify(message));
             log('发送命令: ' + JSON.stringify(command));
         }
-
         // 发送ping
         function sendPing() {
             if (!isConnected) {
                 log('错误: 未连接到服务器');
                 return;
             }
-
             const message = {
                 type: 'ping',
                 message: 'Ping from client'
             };
-
             ws.send(JSON.stringify(message));
             log('发送ping');
         }
-
         // 请求状态
         function requestStatus() {
             if (!isConnected) {
                 log('错误: 未连接到服务器');
                 return;
             }
-
             const message = {
                 type: 'status_request',
                 message: 'Status request from client'
             };
-
             ws.send(JSON.stringify(message));
             log('请求状态');
         }
-
         // 获取WebRTC播放地址
         async function getWebRTCUrls() {
             const robotUCode = document.getElementById('robotUCode').value;
@@ -782,12 +666,10 @@
                 log('错误: 请输入机器人UCode');
                 return;
             }
-
             try {
                 const serverUrl = 'http://localhost:8080';
                 const response = await fetch(serverUrl + '/api/v1/webrtc/play-url?ucode=' + robotUCode);
                 const data = await response.json();
-                
                 if (data.success) {
                     log('获取WebRTC播放地址成功');
                     document.getElementById('videoContainer').innerHTML = 
@@ -800,50 +682,32 @@
                 log('获取WebRTC播放地址错误: ' + error.message);
             }
         }
-
         // 处理接收到的消息
         function handleMessage(message) {
             log('收到消息: ' + JSON.stringify(message));
-            
             switch (message.type) {
-                case 'register_response':
-                    if (message.data && message.data.success) {
+                case 'Response':
+                    if (message.command === 'CMD_BIND_ROBOT' && message.data && message.data.success) {
                         isRegistered = true;
                         const data = message.data;
-                        log('操作者绑定机器人成功: ' + data.ucode + ' (' + data.client_type + ')');
-                        updateConnectionStatus('已连接并绑定机器人: ' + data.ucode, 'success');
-                        
-                        // 更新界面显示客户端信息
+                        log('操作者绑定机器人成功');
+                        updateConnectionStatus('已连接并绑定机器人', 'success');
                         updateClientInfo(data);
+                    } else if (message.command === 'CMD_CONTROL_ROBOT' && message.data && message.data.success) {
+                        log('收到控制响应: ' + JSON.stringify(message.data));
+                    } else if (message.command === 'CMD_REGISTER' && message.data && message.data.success) {
+                        log('操作者注册成功');
+                        updateConnectionStatus('已连接并注册操作者', 'success');
                     } else {
-                        const error = message.data ? message.data.error : message.message;
-                        log('操作者绑定机器人失败: ' + error);
+                        const error = message.message;
+                        log('操作失败: ' + error);
                         updateConnectionStatus('绑定失败', 'error');
                     }
                     break;
-                    
-                case 'pong':
-                    log('收到pong响应');
-                    break;
-                    
-                case 'status_response':
-                    log('收到状态响应: ' + JSON.stringify(message.data));
-                    updateSystemStatus(message.data);
-                    break;
-                    
-                case 'control_response':
-                    log('收到控制响应: ' + JSON.stringify(message.data));
-                    break;
-                    
-                case 'error':
-                    log('服务器错误: ' + message.error);
-                    break;
-                    
                 default:
                     log('未知消息类型: ' + message.type);
             }
         }
-
         // 更新客户端信息显示
         function updateClientInfo(data) {
             const clientInfoDiv = document.getElementById('clientInfo');
@@ -857,14 +721,11 @@
                 `;
             }
         }
-
         // 更新系统状态
         function updateSystemStatus(data) {
             if (data.clients) {
                 const clients = data.clients;
                 document.getElementById('activeClients').textContent = clients.total || 0;
-                
-                // 更新客户端统计信息
                 const clientStatsDiv = document.getElementById('clientStats');
                 if (clientStatsDiv) {
                     clientStatsDiv.style.display = 'block';
@@ -877,7 +738,6 @@
                 }
             }
         }
-
         // 更新连接状态
         function updateConnectionStatus(status, type) {
             const statusElement = document.getElementById('connectionStatus');
@@ -886,7 +746,6 @@
                 statusElement.className = 'status-' + type;
             }
         }
-
         // 更新当前动作状态
         function updateCurrentAction(action) {
             const actionElement = document.getElementById('currentAction');
@@ -900,28 +759,23 @@
                 }
             }
         }
-
         // 更新机器人状态
         function updateRobotStatus(status, type) {
             const element = document.getElementById('robotStatus');
             element.textContent = '机器人状态: ' + status;
             element.className = 'status ' + type;
         }
-
         // 记录日志
         function log(message) {
             const logElement = document.getElementById('log');
             const timestamp = new Date().toLocaleTimeString();
             const logEntry = `[${timestamp}] ${message}`;
-            
             if (logElement) {
                 logElement.innerHTML += logEntry + '<br>';
                 logElement.scrollTop = logElement.scrollHeight;
             }
-            
             console.log(logEntry);
         }
-
         // 清空日志
         function clearLog() {
             const logElement = document.getElementById('log');
@@ -929,25 +783,13 @@
                 logElement.innerHTML = '';
             }
         }
-
-        // 页面加载时自动连接
-        window.onload = function() {
-            log('页面加载完成，准备连接服务器...');
-        };
-
         // 页面卸载时断开连接
         window.onbeforeunload = function() {
-            // 清除所有定时器
-            if (moveInterval) {
-                clearInterval(moveInterval);
-                moveInterval = null;
-            }
             if (shootInterval) {
                 clearInterval(shootInterval);
                 shootInterval = null;
             }
-            
-            // 断开WebSocket连接
+            stopJoystickMove();
             if (ws) {
                 ws.close();
             }

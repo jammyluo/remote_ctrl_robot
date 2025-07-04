@@ -67,7 +67,9 @@ func main() {
 	mux.HandleFunc("/test_client.html", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "test_client.html")
 	})
-
+	mux.HandleFunc("/mobile_operator.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "mobile_operator.html")
+	})
 	// 创建HTTP服务器
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", viper.GetString("server.host"), viper.GetInt("server.port")),

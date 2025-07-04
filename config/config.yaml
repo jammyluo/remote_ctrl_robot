@@ -15,7 +15,7 @@ robot:
   max_retries: 3
 
 logging:
-  level: "info"
+  level: "debug"
   format: "json"
   output: "stdout"
 

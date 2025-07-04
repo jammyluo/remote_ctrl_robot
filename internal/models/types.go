@@ -11,11 +11,74 @@ type WebRTCPlayURLResponse struct {
 	Message string   `json:"message"`
 }
 
-// 控制命令
-type ControlCommand struct {
-	CommandID string `json:"command_id"` // 命令ID
-	Priority  int    `json:"priority"`   // 优先级 (1-10)
-	Timestamp int64  `json:"timestamp"`  // 时间戳
+// 客户端类型
+type ClientType string
+type WSMessageType string
+type CommandType string
+
+const (
+	ClientTypeRobot       ClientType    = "robot"    // 机器人
+	ClientTypeOperator    ClientType    = "operator" // 操作者
+	WSMessageTypeResponse WSMessageType = "Response"
+	WSMessageTypeRequest  WSMessageType = "Request"
+)
+
+type Client struct {
+	UCode      string     `json:"ucode"`       // 客户端唯一标识
+	Name       string     `json:"name"`        // 客户端名称
+	ClientType ClientType `json:"type"`        // 客户端类型 robot, operator
+	Version    string     `json:"version"`     // 客户端版本
+	Connected  bool       `json:"connected"`   // 是否连接
+	LastSeen   time.Time  `json:"last_seen"`   // 最后活跃时间
+	RemoteAddr string     `json:"remote_addr"` // 远程地址
+}
+
+const (
+	CMD_TYPE_REGISTER            CommandType = "CMD_REGISTER"            // 注册
+	CMD_TYPE_BIND_ROBOT          CommandType = "CMD_BIND_ROBOT"          // 机器人绑定
+	CMD_TYPE_UPDATE_ROBOT_STATUS CommandType = "CMD_UPDATE_ROBOT_STATUS" // 机器人状态
+	CMD_TYPE_PING                CommandType = "CMD_PING"                // 心跳
+	CMD_TYPE_CONTROL_ROBOT       CommandType = "CMD_CONTROL_ROBOT"       // 控制机器人
+	CMD_TYPE_REPORT_HIT_DATA     CommandType = "CMD_REPORT_HIT_DATA"     // 上报伤害数据
+	CMD_TYPE_UPDATE_LIFE_DATA    CommandType = "CMD_UPDATE_LIFE_DATA"    // 更新生命数据
+)
+
+// WebSocket消息
+type WebSocketMessage struct {
+	Type       WSMessageType `json:"type"`        // 消息类型: Response, Request
+	Command    CommandType   `json:"command"`     // 命令类型
+	Sequence   int64         `json:"sequence"`    // 序列号
+	UCode      string        `json:"ucode"`       // UCode
+	ClientType ClientType    `json:"client_type"` // 客户端类型: robot, operator
+	Version    string        `json:"version"`     // 版本
+	Data       interface{}   `json:"data"`        // 数据
+}
+
+type CMD_BIND_ROBOT struct {
+	UCode string `json:"ucode"` // 机器人UCode
+}
+
+type CMD_CONTROL_ROBOT struct {
+	Action    string            `json:"action"`    // 动作: move, stop, reset, etc.
+	ParamMaps map[string]string `json:"params"`    // 参数: 动作参数
+	Timestamp int64             `json:"timestamp"` // 时间戳
+}
+
+type CMD_REPORT_HIT_DATA struct {
+	HitPress  int64 `json:"hit_press"` // 伤害值
+	Timestamp int64 `json:"timestamp"` // 时间戳
+}
+
+type CMD_UPDATE_LIFE_DATA struct {
+	LifePress int64 `json:"life_press"` // 生命值
+	Timestamp int64 `json:"timestamp"`  // 时间戳
+}
+
+// 命令响应
+type CMD_RESPONSE struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"message,omitempty"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 // 机器人状态
@@ -27,22 +90,6 @@ type RobotState struct {
 	Status          string     `json:"status"`           // 状态: idle, moving, error, emergency_stop
 	ErrorCode       int        `json:"error_code"`       // 错误代码
 	ErrorMessage    string     `json:"error_message"`    // 错误信息
-	Timestamp       int64      `json:"timestamp"`        // 时间戳
-}
-
-// 控制命令响应
-type ControlResponse struct {
-	Success   bool   `json:"success"`
-	CommandID string `json:"command_id,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Error     string `json:"error,omitempty"`
-}
-
-// WebSocket消息
-type WebSocketMessage struct {
-	Type    string      `json:"type"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
 }
 
 // 连接状态
@@ -102,49 +149,4 @@ type WebRTCRegisterResponse struct {
 	Success bool          `json:"success"`
 	Stream  *WebRTCStream `json:"stream,omitempty"`
 	Message string        `json:"message"`
-}
-
-// 客户端类型
-type ClientType string
-
-const (
-	ClientTypeRobot    ClientType = "robot"    // 机器人
-	ClientTypeOperator ClientType = "operator" // 操作者
-)
-
-// 注册请求
-type RegisterRequest struct {
-	UCode      string     `json:"ucode"`       // 唯一标识
-	ClientType ClientType `json:"client_type"` // 客户端类型: robot, operator
-	Name       string     `json:"name"`        // 名称（可选）
-	Version    string     `json:"version"`     // 版本（可选）
-}
-
-// 注册响应
-type RegisterResponse struct {
-	Success    bool       `json:"success"`
-	UCode      string     `json:"ucode"`
-	ClientType ClientType `json:"client_type"`
-	Message    string     `json:"message"`
-	Error      string     `json:"error,omitempty"`
-	Timestamp  int64      `json:"timestamp"`
-}
-
-type RobotConnection struct {
-	UCode      string    `json:"ucode"` // 机器人UCode（对于操作者，这是要控制的机器人UCode）
-	Version    string    `json:"version"`
-	Connected  bool      `json:"connected"`
-	LastSeen   time.Time `json:"last_seen"`
-	RemoteAddr string    `json:"remote_addr"`
-}
-
-// 客户端信息
-type OperatorConnection struct {
-	OperatorID string    `json:"operator_id"` // 操作者标识（仅对操作者有效）
-	RobotUCode string    `json:"robot_ucode"` // 机器人UCode（对于操作者，这是要控制的机器人UCode）
-	Name       string    `json:"name"`
-	Version    string    `json:"version"`
-	Connected  bool      `json:"connected"`
-	LastSeen   time.Time `json:"last_seen"`
-	RemoteAddr string    `json:"remote_addr"`
 }
