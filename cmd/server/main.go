@@ -37,8 +37,10 @@ func main() {
 		viper.GetString("robot.websocket_url"),
 	)
 
+	gameService := services.NewGameService()
+
 	// 创建处理器
-	wsHandlers := handlers.NewWebSocketHandlers(robotService)
+	wsHandlers := handlers.NewWebSocketHandlers(robotService, gameService)
 	apiHandlers := handlers.NewAPIHandlers(janusService, robotService, wsHandlers)
 
 	// 创建HTTP服务器
@@ -65,10 +67,10 @@ func main() {
 
 	// 静态文件服务
 	mux.HandleFunc("/test_client.html", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "test_client.html")
+		http.ServeFile(w, r, "www/test_client.html")
 	})
 	mux.HandleFunc("/mobile_operator.html", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "mobile_operator.html")
+		http.ServeFile(w, r, "www/mobile_operator.html")
 	})
 	// 创建HTTP服务器
 	server := &http.Server{

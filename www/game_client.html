@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机器人对抗游戏客户端</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .game-area {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .game-canvas {
+            border: 2px solid #333;
+            background: #000;
+            width: 100%;
+            height: 400px;
+            position: relative;
+        }
+        .game-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .control-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .control-group {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .control-group h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .robot-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .robot-item {
+            background: white;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .robot-item.dead {
+            border-left-color: #dc3545;
+            opacity: 0.6;
+        }
+        .log-area {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .health-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        .health-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #dc3545, #ffc107, #28a745);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 机器人对抗游戏</h1>
+            <p>基于WebSocket的实时多人对抗游戏</p>
+        </div>
+
+        <div id="status" class="status" style="display: none;"></div>
+
+        <div class="control-panel">
+            <div class="control-group">
+                <h3>连接设置</h3>
+                <div class="form-group">
+                    <label for="ucode">机器人UCode:</label>
+                    <input type="text" id="ucode" value="robot_001" placeholder="输入机器人唯一标识">
+                </div>
+                <div class="form-group">
+                    <label for="robotName">机器人名称:</label>
+                    <input type="text" id="robotName" value="机器人001" placeholder="输入机器人名称">
+                </div>
+                <div class="form-group">
+                    <label for="serverUrl">服务器地址:</label>
+                    <input type="text" id="serverUrl" value="ws://localhost:8080/ws/control" placeholder="WebSocket服务器地址">
+                </div>
+                <button id="connectBtn" onclick="connect()">连接服务器</button>
+                <button id="disconnectBtn" onclick="disconnect()" disabled>断开连接</button>
+            </div>
+
+            <div class="control-group">
+                <h3>游戏控制</h3>
+                <div class="form-group">
+                    <label for="gameId">游戏ID:</label>
+                    <input type="text" id="gameId" value="default_game" placeholder="游戏ID">
+                </div>
+                <button id="joinGameBtn" onclick="joinGame()" disabled>加入游戏</button>
+                <button id="leaveGameBtn" onclick="leaveGame()" disabled>离开游戏</button>
+                <button id="startGameBtn" onclick="startGame()" disabled>开始游戏</button>
+                <button id="stopGameBtn" onclick="stopGame()" disabled>停止游戏</button>
+            </div>
+        </div>
+
+        <div class="game-area">
+            <div class="game-canvas" id="gameCanvas">
+                <canvas id="canvas" width="800" height="400"></canvas>
+            </div>
+            <div class="game-info">
+                <h3>游戏信息</h3>
+                <div id="myRobotInfo">
+                    <p><strong>我的状态:</strong> <span id="myStatus">未连接</span></p>
+                    <div class="health-bar">
+                        <div class="health-fill" id="myHealthBar" style="width: 100%"></div>
+                    </div>
+                    <p><strong>血量:</strong> <span id="myHealth">100/100</span></p>
+                    <p><strong>得分:</strong> <span id="myScore">0</span></p>
+                    <p><strong>击杀:</strong> <span id="myKills">0</span></p>
+                    <p><strong>死亡:</strong> <span id="myDeaths">0</span></p>
+                </div>
+                
+                <h4>其他机器人</h4>
+                <div id="robotList" class="robot-list"></div>
+                
+                <h4>游戏日志</h4>
+                <div id="gameLog" class="log-area"></div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="control-group">
+                <h3>射击控制</h3>
+                <div class="form-group">
+                    <label for="targetX">目标X坐标:</label>
+                    <input type="number" id="targetX" value="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="targetY">目标Y坐标:</label>
+                    <input type="number" id="targetY" value="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="targetZ">目标Z坐标:</label>
+                    <input type="number" id="targetZ" value="0" step="0.1">
+                </div>
+                <button id="shootBtn" onclick="shoot()" disabled>射击</button>
+            </div>
+
+            <div class="control-group">
+                <h3>移动控制</h3>
+                <div class="form-group">
+                    <label for="moveX">X坐标:</label>
+                    <input type="number" id="moveX" value="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="moveY">Y坐标:</label>
+                    <input type="number" id="moveY" value="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="direction">朝向(弧度):</label>
+                    <input type="number" id="direction" value="0" step="0.1">
+                </div>
+                <button id="moveBtn" onclick="move()" disabled>移动</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let connected = false;
+        let inGame = false;
+        let gameState = null;
+        let myRobot = null;
+        let sequence = 1;
+
+        // 状态显示
+        function showStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.style.display = 'block';
+            if (isError) {
+                status.className = 'status error';
+            } else {
+                status.className = 'status';
+            }
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+
+        // 添加日志
+        function addLog(message) {
+            const log = document.getElementById('gameLog');
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML += `[${time}] ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // 连接服务器
+        function connect() {
+            const ucode = document.getElementById('ucode').value;
+            const robotName = document.getElementById('robotName').value;
+            const serverUrl = document.getElementById('serverUrl').value;
+
+            if (!ucode || !robotName) {
+                showStatus('请填写机器人UCode和名称', true);
+                return;
+            }
+
+            try {
+                ws = new WebSocket(serverUrl);
+                
+                ws.onopen = function() {
+                    connected = true;
+                    showStatus('WebSocket连接成功');
+                    addLog('连接服务器成功');
+                    
+                    // 发送注册消息
+                    const registerMsg = {
+                        type: 'Request',
+                        command: 'CMD_REGISTER',
+                        sequence: sequence++,
+                        ucode: ucode,
+                        client_type: 'robot',
+                        version: '1.0.0',
+                        data: {
+                            name: robotName
+                        }
+                    };
+                    
+                    ws.send(JSON.stringify(registerMsg));
+                    
+                    // 更新UI状态
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    document.getElementById('joinGameBtn').disabled = false;
+                };
+                
+                ws.onmessage = function(event) {
+                    const message = JSON.parse(event.data);
+                    handleMessage(message);
+                };
+                
+                ws.onclose = function() {
+                    connected = false;
+                    inGame = false;
+                    showStatus('WebSocket连接已断开');
+                    addLog('连接断开');
+                    
+                    // 更新UI状态
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    document.getElementById('joinGameBtn').disabled = true;
+                    document.getElementById('leaveGameBtn').disabled = true;
+                    document.getElementById('startGameBtn').disabled = true;
+                    document.getElementById('stopGameBtn').disabled = true;
+                    document.getElementById('shootBtn').disabled = true;
+                    document.getElementById('moveBtn').disabled = true;
+                };
+                
+                ws.onerror = function(error) {
+                    showStatus('WebSocket连接错误', true);
+                    addLog('连接错误: ' + error);
+                };
+                
+            } catch (error) {
+                showStatus('连接失败: ' + error.message, true);
+            }
+        }
+
+        // 断开连接
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        // 处理接收到的消息
+        function handleMessage(message) {
+            addLog(`收到消息: ${message.command}`);
+            
+            if (message.command === 'CMD_REGISTER') {
+                if (message.data && message.data.success) {
+                    showStatus('注册成功');
+                    addLog('机器人注册成功');
+                } else {
+                    showStatus('注册失败: ' + (message.data?.message || '未知错误'), true);
+                }
+            } else if (message.command === 'CMD_JOIN_GAME') {
+                if (message.data && message.data.success) {
+                    inGame = true;
+                    showStatus('成功加入游戏');
+                    addLog('加入游戏成功');
+                    
+                    document.getElementById('leaveGameBtn').disabled = false;
+                    document.getElementById('startGameBtn').disabled = false;
+                    document.getElementById('shootBtn').disabled = false;
+                    document.getElementById('moveBtn').disabled = false;
+                } else {
+                    showStatus('加入游戏失败: ' + (message.data?.message || '未知错误'), true);
+                }
+            } else if (message.command === 'CMD_GAME_STATUS') {
+                if (message.data) {
+                    gameState = message.data.game_state;
+                    myRobot = message.data.my_robot;
+                    updateGameDisplay();
+                }
+            }
+        }
+
+        // 加入游戏
+        function joinGame() {
+            if (!connected) {
+                showStatus('请先连接服务器', true);
+                return;
+            }
+            
+            const gameId = document.getElementById('gameId').value;
+            const robotName = document.getElementById('robotName').value;
+            
+            const joinMsg = {
+                type: 'Request',
+                command: 'CMD_JOIN_GAME',
+                sequence: sequence++,
+                ucode: document.getElementById('ucode').value,
+                client_type: 'robot',
+                version: '1.0.0',
+                data: {
+                    game_id: gameId,
+                    name: robotName
+                }
+            };
+            
+            ws.send(JSON.stringify(joinMsg));
+            addLog('发送加入游戏请求');
+        }
+
+        // 离开游戏
+        function leaveGame() {
+            if (!connected || !inGame) {
+                showStatus('未在游戏中', true);
+                return;
+            }
+            
+            const gameId = document.getElementById('gameId').value;
+            
+            const leaveMsg = {
+                type: 'Request',
+                command: 'CMD_LEAVE_GAME',
+                sequence: sequence++,
+                ucode: document.getElementById('ucode').value,
+                client_type: 'robot',
+                version: '1.0.0',
+                data: {
+                    game_id: gameId
+                }
+            };
+            
+            ws.send(JSON.stringify(leaveMsg));
+            addLog('发送离开游戏请求');
+            
+            inGame = false;
+            document.getElementById('leaveGameBtn').disabled = true;
+            document.getElementById('startGameBtn').disabled = true;
+            document.getElementById('shootBtn').disabled = true;
+            document.getElementById('moveBtn').disabled = true;
+        }
+
+        // 开始游戏
+        function startGame() {
+            if (!connected || !inGame) {
+                showStatus('请先加入游戏', true);
+                return;
+            }
+            
+            const gameId = document.getElementById('gameId').value;
+            
+            const startMsg = {
+                type: 'Request',
+                command: 'CMD_GAME_START',
+                sequence: sequence++,
+                ucode: document.getElementById('ucode').value,
+                client_type: 'operator',
+                version: '1.0.0',
+                data: {
+                    game_id: gameId
+                }
+            };
+            
+            ws.send(JSON.stringify(startMsg));
+            addLog('发送开始游戏请求');
+        }
+
+        // 停止游戏
+        function stopGame() {
+            if (!connected || !inGame) {
+                showStatus('请先加入游戏', true);
+                return;
+            }
+            
+            const gameId = document.getElementById('gameId').value;
+            
+            const stopMsg = {
+                type: 'Request',
+                command: 'CMD_GAME_STOP',
+                sequence: sequence++,
+                ucode: document.getElementById('ucode').value,
+                client_type: 'operator',
+                version: '1.0.0',
+                data: {
+                    game_id: gameId
+                }
+            };
+            
+            ws.send(JSON.stringify(stopMsg));
+            addLog('发送停止游戏请求');
+        }
+
+        // 射击
+        function shoot() {
+            if (!connected || !inGame) {
+                showStatus('请先加入游戏', true);
+                return;
+            }
+            
+            const targetX = parseFloat(document.getElementById('targetX').value);
+            const targetY = parseFloat(document.getElementById('targetY').value);
+            const targetZ = parseFloat(document.getElementById('targetZ').value);
+            
+            const shootMsg = {
+                type: 'Request',
+                command: 'CMD_GAME_SHOOT',
+                sequence: sequence++,
+                ucode: document.getElementById('ucode').value,
+                client_type: 'robot',
+                version: '1.0.0',
+                data: {
+                    target_x: targetX,
+                    target_y: targetY,
+                    target_z: targetZ
+                }
+            };
+            
+            ws.send(JSON.stringify(shootMsg));
+            addLog(`射击: (${targetX}, ${targetY}, ${targetZ})`);
+        }
+
+        // 移动
+        function move() {
+            if (!connected || !inGame) {
+                showStatus('请先加入游戏', true);
+                return;
+            }
+            
+            const x = parseFloat(document.getElementById('moveX').value);
+            const y = parseFloat(document.getElementById('moveY').value);
+            const direction = parseFloat(document.getElementById('direction').value);
+            
+            const moveMsg = {
+                type: 'Request',
+                command: 'CMD_GAME_MOVE',
+                sequence: sequence++,
+                ucode: document.getElementById('ucode').value,
+                client_type: 'robot',
+                version: '1.0.0',
+                data: {
+                    position: {
+                        x: x,
+                        y: y,
+                        z: 0
+                    },
+                    direction: direction
+                }
+            };
+            
+            ws.send(JSON.stringify(moveMsg));
+            addLog(`移动: (${x}, ${y}) 朝向: ${direction}`);
+        }
+
+        // 更新游戏显示
+        function updateGameDisplay() {
+            if (myRobot) {
+                document.getElementById('myStatus').textContent = myRobot.is_alive ? '存活' : '死亡';
+                document.getElementById('myHealth').textContent = `${myRobot.health}/${myRobot.max_health}`;
+                document.getElementById('myScore').textContent = myRobot.score;
+                document.getElementById('myKills').textContent = myRobot.kills;
+                document.getElementById('myDeaths').textContent = myRobot.deaths;
+                
+                const healthPercent = (myRobot.health / myRobot.max_health) * 100;
+                document.getElementById('myHealthBar').style.width = healthPercent + '%';
+            }
+            
+            if (gameState && gameState.robots) {
+                const robotList = document.getElementById('robotList');
+                robotList.innerHTML = '';
+                
+                Object.values(gameState.robots).forEach(robot => {
+                    if (robot.ucode !== document.getElementById('ucode').value) {
+                        const robotItem = document.createElement('div');
+                        robotItem.className = `robot-item ${robot.is_alive ? '' : 'dead'}`;
+                        robotItem.innerHTML = `
+                            <strong>${robot.name}</strong><br>
+                            血量: ${robot.health}/${robot.max_health}<br>
+                            得分: ${robot.score} | 击杀: ${robot.kills} | 死亡: ${robot.deaths}
+                        `;
+                        robotList.appendChild(robotItem);
+                    }
+                });
+            }
+        }
+
+        // 定期请求游戏状态
+        setInterval(() => {
+            if (connected && inGame) {
+                const gameId = document.getElementById('gameId').value;
+                
+                const statusMsg = {
+                    type: 'Request',
+                    command: 'CMD_GAME_STATUS',
+                    sequence: sequence++,
+                    ucode: document.getElementById('ucode').value,
+                    client_type: 'robot',
+                    version: '1.0.0',
+                    data: {
+                        game_id: gameId
+                    }
+                };
+                
+                ws.send(JSON.stringify(statusMsg));
+            }
+        }, 1000);
+    </script>
+</body>
+</html> 

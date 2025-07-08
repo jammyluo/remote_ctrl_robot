@@ -37,9 +37,10 @@ type WebSocketHandlers struct {
 	mutex  sync.RWMutex
 
 	robotService *services.RobotService
+	gameService  *services.GameService
 }
 
-func NewWebSocketHandlers(robotService *services.RobotService) *WebSocketHandlers {
+func NewWebSocketHandlers(robotService *services.RobotService, gameService *services.GameService) *WebSocketHandlers {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WebSocketHandlers{
 		upgrader: websocket.Upgrader{
@@ -55,6 +56,7 @@ func NewWebSocketHandlers(robotService *services.RobotService) *WebSocketHandler
 		ctx:            ctx,
 		cancel:         cancel,
 		robotService:   robotService,
+		gameService:    gameService,
 	}
 }
 
@@ -283,6 +285,11 @@ func (h *WebSocketHandlers) cleanupConnection(conn *websocket.Conn) {
 	defer h.mutex.Unlock()
 
 	if client, ok := h.Conn2Client[conn]; ok {
+		// 清理游戏连接
+		if h.gameService != nil {
+			h.gameService.RemoveRobotConnection(conn)
+		}
+
 		delete(h.Ucode2Conn, client.UCode)
 		delete(h.Conn2Client, conn)
 		delete(h.Operator2Robot, client.UCode)
@@ -360,6 +367,21 @@ func (h *WebSocketHandlers) handleMessage(conn *websocket.Conn, msg *models.WebS
 		err = h.handleUpdateRobotStatus(conn, dataJSON)
 	case models.CMD_TYPE_PING:
 		err = h.handlePing(conn, dataJSON)
+	// 游戏相关命令
+	case models.CMD_TYPE_JOIN_GAME:
+		err = h.handleJoinGame(conn, dataJSON)
+	case models.CMD_TYPE_LEAVE_GAME:
+		err = h.handleLeaveGame(conn, dataJSON)
+	case models.CMD_TYPE_GAME_SHOOT:
+		err = h.handleGameShoot(conn, dataJSON)
+	case models.CMD_TYPE_GAME_MOVE:
+		err = h.handleGameMove(conn, dataJSON)
+	case models.CMD_TYPE_GAME_STATUS:
+		err = h.handleGameStatus(conn, dataJSON)
+	case models.CMD_TYPE_GAME_START:
+		err = h.handleGameStart(conn, dataJSON)
+	case models.CMD_TYPE_GAME_STOP:
+		err = h.handleGameStop(conn, dataJSON)
 	}
 
 	if err != nil {
@@ -519,4 +541,211 @@ func (h *WebSocketHandlers) GetAllOperatorConnections() []*models.Client {
 		}
 	}
 	return operators
+}
+
+// 游戏相关处理方法
+
+// 处理加入游戏
+func (h *WebSocketHandlers) handleJoinGame(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	if client.ClientType != models.ClientTypeRobot {
+		return errors.New("only robots can join games")
+	}
+
+	var data models.CMD_JOIN_GAME
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	// 如果游戏不存在，创建新游戏
+	if _, err := h.gameService.GetGameState(data.GameID); err != nil {
+		h.gameService.CreateGame(data.GameID)
+	}
+
+	// 加入游戏
+	return h.gameService.JoinGame(data.GameID, client.UCode, data.Name, conn)
+}
+
+// 处理离开游戏
+func (h *WebSocketHandlers) handleLeaveGame(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	if client.ClientType != models.ClientTypeRobot {
+		return errors.New("only robots can leave games")
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	gameID, ok := data["game_id"].(string)
+	if !ok {
+		return errors.New("game_id is required")
+	}
+
+	return h.gameService.LeaveGame(gameID, client.UCode)
+}
+
+// 处理游戏射击
+func (h *WebSocketHandlers) handleGameShoot(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	if client.ClientType != models.ClientTypeRobot {
+		return errors.New("only robots can shoot")
+	}
+
+	var data models.CMD_GAME_SHOOT
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	// 需要从消息中获取游戏ID，这里简化处理，假设只有一个活跃游戏
+	// 在实际应用中，应该从消息中获取游戏ID
+	gameID := "default_game" // 简化处理
+
+	return h.gameService.ProcessShot(gameID, client.UCode, data.TargetX, data.TargetY, data.TargetZ)
+}
+
+// 处理游戏移动
+func (h *WebSocketHandlers) handleGameMove(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	if client.ClientType != models.ClientTypeRobot {
+		return errors.New("only robots can move")
+	}
+
+	var data models.CMD_GAME_MOVE
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	// 简化处理，假设只有一个活跃游戏
+	gameID := "default_game"
+
+	return h.gameService.ProcessMove(gameID, client.UCode, data.Position, data.Direction)
+}
+
+// 处理游戏状态请求
+func (h *WebSocketHandlers) handleGameStatus(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	gameID, ok := data["game_id"].(string)
+	if !ok {
+		return errors.New("game_id is required")
+	}
+
+	gameState, err := h.gameService.GetGameState(gameID)
+	if err != nil {
+		return err
+	}
+
+	myRobot, err := h.gameService.GetRobotInGame(gameID, client.UCode)
+	if err != nil {
+		return err
+	}
+
+	// 发送游戏状态响应
+	response := models.WebSocketMessage{
+		Type:     models.WSMessageTypeResponse,
+		Command:  models.CMD_TYPE_GAME_STATUS,
+		Sequence: time.Now().UnixNano(),
+		UCode:    client.UCode,
+		Data: models.CMD_GAME_STATUS_RESPONSE{
+			GameState: gameState,
+			MyRobot:   myRobot,
+		},
+	}
+
+	return conn.WriteJSON(response)
+}
+
+// 处理开始游戏
+func (h *WebSocketHandlers) handleGameStart(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	if client.ClientType != models.ClientTypeOperator {
+		return errors.New("only operators can start games")
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	gameID, ok := data["game_id"].(string)
+	if !ok {
+		return errors.New("game_id is required")
+	}
+
+	return h.gameService.StartGame(gameID)
+}
+
+// 处理停止游戏
+func (h *WebSocketHandlers) handleGameStop(conn *websocket.Conn, dataJSON []byte) error {
+	h.mutex.RLock()
+	client, exists := h.Conn2Client[conn]
+	h.mutex.RUnlock()
+
+	if !exists {
+		return errors.New("client not found")
+	}
+
+	if client.ClientType != models.ClientTypeOperator {
+		return errors.New("only operators can stop games")
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return errors.New("failed to parse command: " + err.Error())
+	}
+
+	gameID, ok := data["game_id"].(string)
+	if !ok {
+		return errors.New("game_id is required")
+	}
+
+	return h.gameService.StopGame(gameID)
 }

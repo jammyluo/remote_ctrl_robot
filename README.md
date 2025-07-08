@@ -23,6 +23,30 @@ go run cmd/server/main.go
 docker-compose up -d
 ```
 
+### 2. 移动端使用（iPhone Safari）
+
+在iPhone Safari中使用时，需要注意以下事项：
+
+1. **服务器地址配置**：
+   - 不能使用 `localhost`，需要使用服务器的实际IP地址
+   - 例如：`192.168.1.100:8000` 或 `your-domain.com`
+
+2. **连接测试**：
+   - 使用 `tools/test_websocket_connection.html` 测试连接
+   - 确保网络连接正常
+
+3. **常见问题**：
+   - 如果连接失败，检查防火墙设置
+   - 确保服务器允许WebSocket连接
+   - 检查网络是否在同一网段
+
+4. **使用步骤**：
+   - 打开 `www/mobile_operator.html`
+   - 点击"设置"按钮
+   - 输入正确的服务器IP地址
+   - 输入机器人UCode和操作者ID
+   - 点击"保存并连接"
+
 ### 2. 机器人连接
 
 机器人需要通过WebSocket连接并注册UCODE：
