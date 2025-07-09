@@ -314,7 +314,6 @@ func (s *GameService) ProcessShot(gameID, shooterUCode string, targetX, targetY,
 		StartPos:     shooter.Position,
 		CurrentPos:   shooter.Position,
 		Direction:    direction,
-		Speed:        game.Config.BulletSpeed,
 		Damage:       game.Config.BulletDamage,
 		Range:        game.Config.BulletRange,
 		Created:      time.Now(),
@@ -491,9 +490,9 @@ func (s *GameService) updateBullets(game *models.GameState) {
 		}
 
 		// 移动子弹
-		bullet.CurrentPos.X += bullet.Direction.X * bullet.Speed * 0.05 // 50ms
-		bullet.CurrentPos.Y += bullet.Direction.Y * bullet.Speed * 0.05
-		bullet.CurrentPos.Z += bullet.Direction.Z * bullet.Speed * 0.05
+		// bullet.CurrentPos.X += bullet.Direction.X * bullet.Speed * 0.05 // 50ms
+		// bullet.CurrentPos.Y += bullet.Direction.Y * bullet.Speed * 0.05
+		// bullet.CurrentPos.Z += bullet.Direction.Z * bullet.Speed * 0.05
 
 		// 检查射程
 		distance := s.calculateDistance(bullet.StartPos, bullet.CurrentPos)

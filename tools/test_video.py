@@ -14,3 +14,12 @@ cv2.destroyAllWindows()
 
 
 # gst-launch-1.0 udpsrc address=230.1.1.1 port=1720 multicast-iface=<interface_name> ! queue !  application/x-rtp, media=video, encoding-name=H264 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! autovideosink
+
+
+# 发送端
+# gst-launch-1.0 -v v4l2src device=/dev/video0 ! 'video/x-raw,width=1280,height=720,framerate=10/1' ! 
+# videoconvert ! omxh264enc ! 'video/x-h264, profile=(string)high' ! rtph264pay ! udpsink host=192.168.8.100 port=5600
+
+#接收端
+# gst-launch-1.0 -v udpsrc port=5600 caps='application/x-rtp, media=(string)video, clock-rate=(int)90000, 
+# encoding-name=(string)H264' ! rtph264depay ! avdec_h264 ! autovideosink fps-update-interval=1000 sync=false

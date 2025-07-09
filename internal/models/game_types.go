@@ -35,22 +35,43 @@ type GameState struct {
 	Statistics *GameStatistics       `json:"statistics"` // 游戏统计
 }
 
+// 子弹
+type Bullet struct {
+	ID          string  `json:"id"`           // 子弹ID
+	Damage      int     `json:"damage"`       // 伤害
+	Range       float64 `json:"range"`        // 射程
+	Caliber     float64 `json:"caliber"`      // 口径
+	BulletType  string  `json:"bullet_type"`  // 子弹类型
+	BulletColor string  `json:"bullet_color"` // 子弹颜色
+}
+
+// 弹夹
+type Magazine struct {
+	ID            string    `json:"id"`             // 弹夹ID
+	Bullet        Bullet    `json:"bullet"`         // 子弹
+	MagazineSize  int       `json:"magazine_size"`  // 弹夹容量
+	ReloadingTime time.Time `json:"reloading_time"` // 装弹时间
+}
+
 // 游戏机器人
 type GameRobot struct {
-	UCode       string    `json:"ucode"`        // 机器人唯一标识
-	Name        string    `json:"name"`         // 机器人名称
-	Health      int       `json:"health"`       // 当前血量
-	MaxHealth   int       `json:"max_health"`   // 最大血量
-	Position    Position  `json:"position"`     // 位置
-	Direction   float64   `json:"direction"`    // 朝向(弧度)
-	IsAlive     bool      `json:"is_alive"`     // 是否存活
-	LastShot    time.Time `json:"last_shot"`    // 上次射击时间
-	RespawnTime time.Time `json:"respawn_time"` // 复活时间
-	Score       int       `json:"score"`        // 得分
-	Kills       int       `json:"kills"`        // 击杀数
-	Deaths      int       `json:"deaths"`       // 死亡数
-	ShotsFired  int       `json:"shots_fired"`  // 射击次数
-	ShotsHit    int       `json:"shots_hit"`    // 命中次数
+	UCode         string    `json:"ucode"`          // 机器人唯一标识
+	Name          string    `json:"name"`           // 机器人名称
+	Health        int       `json:"health"`         // 当前血量
+	MaxHealth     int       `json:"max_health"`     // 最大血量
+	Position      Position  `json:"position"`       // 位置
+	Direction     float64   `json:"direction"`      // 朝向(弧度)
+	IsAlive       bool      `json:"is_alive"`       // 是否存活
+	LastShot      time.Time `json:"last_shot"`      // 上次射击时间
+	Magazine      Magazine  `json:"magazine"`       // 弹夹
+	RemainingAmmo int       `json:"remaining_ammo"` // 剩余弹药
+	Reloading     bool      `json:"reloading"`      // 是否正在装弹
+	RespawnTime   time.Time `json:"respawn_time"`   // 复活时间
+	Score         int       `json:"score"`          // 得分
+	Kills         int       `json:"kills"`          // 击杀数
+	Deaths        int       `json:"deaths"`         // 死亡数
+	ShotsFired    int       `json:"shots_fired"`    // 射击次数
+	ShotsHit      int       `json:"shots_hit"`      // 命中次数
 }
 
 // 位置信息
@@ -67,9 +88,8 @@ type GameBullet struct {
 	StartPos     Position  `json:"start_pos"`     // 起始位置
 	CurrentPos   Position  `json:"current_pos"`   // 当前位置
 	Direction    Position  `json:"direction"`     // 方向向量
-	Speed        float64   `json:"speed"`         // 速度
-	Damage       int       `json:"damage"`        // 伤害
-	Range        float64   `json:"range"`         // 射程
+	Damage       int       `json:"damage"`        // 实际伤害值
+	Range        float64   `json:"range"`         // 实际射程值
 	Created      time.Time `json:"created"`       // 创建时间
 	IsActive     bool      `json:"is_active"`     // 是否活跃
 }
@@ -124,12 +144,15 @@ type GameEvent struct {
 const (
 	CMD_TYPE_JOIN_GAME    CommandType = "CMD_JOIN_GAME"    // 加入游戏
 	CMD_TYPE_LEAVE_GAME   CommandType = "CMD_LEAVE_GAME"   // 离开游戏
-	CMD_TYPE_GAME_SHOOT   CommandType = "CMD_GAME_SHOOT"   // 游戏射击
 	CMD_TYPE_GAME_MOVE    CommandType = "CMD_GAME_MOVE"    // 游戏移动
 	CMD_TYPE_GAME_STATUS  CommandType = "CMD_GAME_STATUS"  // 游戏状态
 	CMD_TYPE_GAME_CONFIG  CommandType = "CMD_GAME_CONFIG"  // 游戏配置
+	CMD_TYPE_GAME_RELOAD  CommandType = "CMD_GAME_RELOAD"  // 游戏装弹
+	CMD_TYPE_GAME_SHOOT   CommandType = "CMD_GAME_SHOOT"   // 游戏射击
+	CMD_TYPE_GAME_HIT     CommandType = "CMD_GAME_HIT"     // 被击中
 	CMD_TYPE_GAME_START   CommandType = "CMD_GAME_START"   // 开始游戏
-	CMD_TYPE_GAME_STOP    CommandType = "CMD_GAME_STOP"    // 停止游戏
+	CMD_TYPE_GAME_STOP    CommandType = "CMD_GAME_STOP"    // 暂停游戏
+	CMD_TYPE_GAME_END     CommandType = "CMD_GAME_END"     // 结束游戏
 	CMD_TYPE_GAME_RESPAWN CommandType = "CMD_GAME_RESPAWN" // 复活
 )
 

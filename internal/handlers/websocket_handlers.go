@@ -259,6 +259,7 @@ func (h *WebSocketHandlers) handleMessagesWithTimeout(conn *websocket.Conn) {
 			if err := conn.ReadJSON(&msg); err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					log.Error().Err(err).Msg("WebSocket read error")
+
 				} else {
 					log.Info().Msg("WebSocket connection closed normally")
 				}
@@ -347,16 +348,6 @@ func (h *WebSocketHandlers) handleMessage(conn *websocket.Conn, msg *models.WebS
 		return
 	}
 
-	log.Debug().
-		Str("command", string(msg.Command)).
-		Str("ucode", msg.UCode).
-		Str("client_type", string(msg.ClientType)).
-		Str("version", msg.Version).
-		Str("sequence", strconv.FormatInt(msg.Sequence, 10)).
-		Str("data", string(dataJSON)).
-		Str("client", conn.RemoteAddr().String()).
-		Msg("Received WebSocket message")
-
 	err = errors.New("Unknown message type: " + string(msg.Command))
 	switch msg.Command {
 	case models.CMD_TYPE_BIND_ROBOT:
@@ -386,9 +377,26 @@ func (h *WebSocketHandlers) handleMessage(conn *websocket.Conn, msg *models.WebS
 
 	if err != nil {
 		h.sendResponseError(conn, msg, err.Error())
-		log.Error().Err(err).Msg("Failed to handle message " + string(msg.Command) + " " + err.Error())
+		log.Error().
+			Str("client", conn.RemoteAddr().String()).
+			Str("command", string(msg.Command)).
+			Str("ucode", msg.UCode).
+			Str("client_type", string(msg.ClientType)).
+			Str("version", msg.Version).
+			Str("sequence", strconv.FormatInt(msg.Sequence, 10)).
+			Msg("WebSocket message handled : Failed, " + err.Error())
 	} else {
 		h.sendResponse(conn, msg, "Success")
+
+		log.Debug().
+			Str("client", conn.RemoteAddr().String()).
+			Str("command", string(msg.Command)).
+			Str("ucode", msg.UCode).
+			Str("client_type", string(msg.ClientType)).
+			Str("version", msg.Version).
+			Str("sequence", strconv.FormatInt(msg.Sequence, 10)).
+			Str("data", string(dataJSON)).
+			Msg("WebSocket message handled : Success")
 	}
 }
 
