@@ -23,9 +23,8 @@ type WebSocketHandlers struct {
 	cancel context.CancelFunc
 	mutex  sync.RWMutex
 
-	robotManager  *services.RobotManager
 	clientManager *services.ClientManager
-	gameService   *services.GameService
+	robotManager  *services.RobotManager
 }
 
 func NewWebSocketHandlers(robotManager *services.RobotManager, clientManager *services.ClientManager, gameService *services.GameService) *WebSocketHandlers {
@@ -38,9 +37,8 @@ func NewWebSocketHandlers(robotManager *services.RobotManager, clientManager *se
 		},
 		ctx:           ctx,
 		cancel:        cancel,
-		robotManager:  robotManager,
 		clientManager: clientManager,
-		gameService:   gameService,
+		robotManager:  robotManager,
 	}
 }
 
@@ -233,19 +231,17 @@ func (h *WebSocketHandlers) handleMessagesWithTimeout(conn *websocket.Conn) {
 			// 设置读取超时
 			conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 
-			var msg models.WebSocketMessage
-			if err := conn.ReadJSON(&msg); err != nil {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					log.Error().Err(err).Msg("WebSocket read error")
 				}
 				return
 			}
 
-			// 处理消息
-			if err := h.handleMessage(conn, &msg); err != nil {
-				log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to handle message")
-				h.sendResponseError(conn, &msg, err.Error())
-			}
+			// 客户端消息现在由ClientService处理
+			// 这里不需要处理，因为ClientService已经在AddClient时设置了连接
+			log.Debug().Str("data_length", fmt.Sprintf("%d", len(data))).Msg("Message received, handled by ClientService")
 		}
 	}
 }
@@ -266,170 +262,6 @@ func (h *WebSocketHandlers) cleanupConnection(conn *websocket.Conn) {
 func (h *WebSocketHandlers) Shutdown() {
 	h.cancel()
 	log.Info().Msg("WebSocket handlers shutdown")
-}
-
-// 处理消息
-func (h *WebSocketHandlers) handleMessage(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	// 更新客户端最后活跃时间
-	clients := h.clientManager.GetAllClients()
-	for _, client := range clients {
-		if client.RemoteAddr == conn.RemoteAddr().String() {
-			client.LastSeen = time.Now()
-			break
-		}
-	}
-
-	// 根据命令类型处理消息
-	switch msg.Command {
-	case models.CMD_TYPE_BIND_ROBOT:
-		return h.handleBindRobot(conn, msg)
-	case models.CMD_TYPE_CONTROL_ROBOT:
-		return h.handleControlRobot(conn, msg)
-	case models.CMD_TYPE_UPDATE_ROBOT_STATUS:
-		return h.handleUpdateRobotStatus(conn, msg)
-	case models.CMD_TYPE_PING:
-		return h.handlePing(conn, msg)
-	case models.CMD_TYPE_JOIN_GAME:
-		return h.handleJoinGame(conn, msg)
-	case models.CMD_TYPE_LEAVE_GAME:
-		return h.handleLeaveGame(conn, msg)
-	case models.CMD_TYPE_GAME_SHOOT:
-		return h.handleGameShoot(conn, msg)
-	case models.CMD_TYPE_GAME_MOVE:
-		return h.handleGameMove(conn, msg)
-	case models.CMD_TYPE_GAME_STATUS:
-		return h.handleGameStatus(conn, msg)
-	case models.CMD_TYPE_GAME_START:
-		return h.handleGameStart(conn, msg)
-	case models.CMD_TYPE_GAME_STOP:
-		return h.handleGameStop(conn, msg)
-	default:
-		log.Debug().
-			Str("ucode", msg.UCode).
-			Str("command", string(msg.Command)).
-			Msg("Received message from client")
-	}
-
-	return nil
-}
-
-// 处理机器人绑定
-func (h *WebSocketHandlers) handleBindRobot(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	var bindData models.CMD_BIND_ROBOT
-	if data, ok := msg.Data.(map[string]interface{}); ok {
-		if robotUCode, exists := data["ucode"].(string); exists {
-			bindData.UCode = robotUCode
-		}
-	}
-
-	// 检查机器人是否存在
-	robot, err := h.robotManager.GetRobot(bindData.UCode)
-	if err != nil {
-		h.sendResponseError(conn, msg, fmt.Sprintf("机器人 %s 不存在", bindData.UCode))
-		return err
-	}
-
-	// 发送绑定成功响应
-	response := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    models.CMD_TYPE_BIND_ROBOT,
-		Sequence:   msg.Sequence,
-		UCode:      msg.UCode,
-		ClientType: msg.ClientType,
-		Version:    msg.Version,
-		Data: models.RobotBindResponse{
-			Success: true,
-			Message: "机器人绑定成功",
-			Robot:   robot,
-		},
-	}
-
-	return conn.WriteJSON(response)
-}
-
-// 处理机器人控制
-func (h *WebSocketHandlers) handleControlRobot(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	// 解析控制命令
-	var controlData models.CMD_CONTROL_ROBOT
-	if data, ok := msg.Data.(map[string]interface{}); ok {
-		if action, exists := data["action"].(string); exists {
-			controlData.Action = action
-		}
-		if params, exists := data["params"].(map[string]interface{}); exists {
-			controlData.ParamMaps = make(map[string]string)
-			for k, v := range params {
-				if str, ok := v.(string); ok {
-					controlData.ParamMaps[k] = str
-				}
-			}
-		}
-		if timestamp, exists := data["timestamp"].(float64); exists {
-			controlData.Timestamp = int64(timestamp)
-		}
-	}
-
-	// 创建机器人命令
-	command := &models.RobotCommand{
-		Action:        controlData.Action,
-		Params:        controlData.ParamMaps,
-		Priority:      5,
-		Timestamp:     controlData.Timestamp,
-		OperatorUCode: msg.UCode,
-	}
-
-	// 获取在线机器人
-	robots := h.robotManager.GetOnlineRobots()
-	if len(robots) == 0 {
-		h.sendResponseError(conn, msg, "没有可用的在线机器人")
-		return fmt.Errorf("no online robots available")
-	}
-
-	// 发送命令到第一个在线机器人
-	response, err := h.robotManager.SendCommand(robots[0].UCode, command)
-	if err != nil {
-		h.sendResponseError(conn, msg, fmt.Sprintf("命令发送失败: %v", err))
-		return err
-	}
-
-	// 发送成功响应
-	wsResponse := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    models.CMD_TYPE_CONTROL_ROBOT,
-		Sequence:   msg.Sequence,
-		UCode:      msg.UCode,
-		ClientType: msg.ClientType,
-		Version:    msg.Version,
-		Data:       response,
-	}
-
-	return conn.WriteJSON(wsResponse)
-}
-
-// 处理机器人状态更新
-func (h *WebSocketHandlers) handleUpdateRobotStatus(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	// 这里可以处理机器人状态更新
-	// 暂时简单处理
-	h.sendResponse(conn, msg, "状态更新成功")
-	return nil
-}
-
-// 处理心跳
-func (h *WebSocketHandlers) handlePing(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	response := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    models.CMD_TYPE_PING,
-		Sequence:   msg.Sequence,
-		UCode:      msg.UCode,
-		ClientType: msg.ClientType,
-		Version:    msg.Version,
-		Data: models.CMD_RESPONSE{
-			Success:   true,
-			Message:   "pong",
-			Timestamp: time.Now().Unix(),
-		},
-	}
-
-	return conn.WriteJSON(response)
 }
 
 // 获取所有机器人连接
@@ -458,40 +290,4 @@ func (h *WebSocketHandlers) GetAllOperatorConnections() []*models.Client {
 	}
 
 	return operatorClients
-}
-
-// 游戏相关处理方法（简化版本）
-func (h *WebSocketHandlers) handleJoinGame(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "加入游戏成功")
-	return nil
-}
-
-func (h *WebSocketHandlers) handleLeaveGame(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "离开游戏成功")
-	return nil
-}
-
-func (h *WebSocketHandlers) handleGameShoot(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "射击命令发送成功")
-	return nil
-}
-
-func (h *WebSocketHandlers) handleGameMove(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "移动命令发送成功")
-	return nil
-}
-
-func (h *WebSocketHandlers) handleGameStatus(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "游戏状态获取成功")
-	return nil
-}
-
-func (h *WebSocketHandlers) handleGameStart(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "游戏开始成功")
-	return nil
-}
-
-func (h *WebSocketHandlers) handleGameStop(conn *websocket.Conn, msg *models.WebSocketMessage) error {
-	h.sendResponse(conn, msg, "游戏停止成功")
-	return nil
 }

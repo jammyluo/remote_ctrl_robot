@@ -334,11 +334,11 @@ func (s *RobotService) disconnect() {
 	}
 }
 
-// handleMessage 处理接收到的消息
+// handleMessage 处理来自机器人的消息（机器人端消息，与客户端消息不同）
 func (s *RobotService) handleMessage(messageType int, data []byte) error {
 	var message models.WebSocketMessage
 	if err := json.Unmarshal(data, &message); err != nil {
-		return fmt.Errorf("failed to unmarshal message: %w", err)
+		return fmt.Errorf("failed to unmarshal robot message: %w", err)
 	}
 
 	log.Debug().
@@ -347,36 +347,37 @@ func (s *RobotService) handleMessage(messageType int, data []byte) error {
 		Int64("sequence", message.Sequence).
 		Msg("Received message from robot")
 
+	// 机器人端消息处理（状态上报、心跳等）
 	switch message.Command {
 	case models.CMD_TYPE_UPDATE_ROBOT_STATUS:
-		s.handleStatusUpdate(message.Data)
+		return s.handleStatusUpdate(message.Data)
 	case models.CMD_TYPE_PING:
-		s.handlePing(message)
+		return s.handlePing(message)
 	default:
 		log.Debug().
 			Str("ucode", s.robot.UCode).
 			Str("command", string(message.Command)).
-			Msg("Received message from robot")
+			Msg("Unknown robot message command")
 	}
 
 	return nil
 }
 
-// handleStatusUpdate 处理状态更新
-func (s *RobotService) handleStatusUpdate(data interface{}) {
-	// 这里可以根据实际的数据结构来解析状态
-	// 暂时简单处理
+// handleStatusUpdate 处理机器人状态更新
+func (s *RobotService) handleStatusUpdate(data interface{}) error {
+	// 更新机器人状态
 	status := s.robot.GetStatus()
 	if status != nil {
 		status.LastHeartbeat = time.Now()
 		s.robot.UpdateStatus(status)
 	}
 
-	s.emitEvent(models.RobotEventStatusUpdate, "状态更新")
+	s.emitEvent(models.RobotEventStatusUpdate, "机器人状态更新")
+	return nil
 }
 
-// handlePing 处理心跳响应
-func (s *RobotService) handlePing(message models.WebSocketMessage) {
+// handlePing 处理机器人心跳响应
+func (s *RobotService) handlePing(message models.WebSocketMessage) error {
 	status := s.robot.GetStatus()
 	if status != nil {
 		status.LastHeartbeat = time.Now()
@@ -386,4 +387,7 @@ func (s *RobotService) handlePing(message models.WebSocketMessage) {
 		}
 		s.robot.UpdateStatus(status)
 	}
+
+	s.emitEvent(models.RobotEventHeartbeat, "机器人心跳")
+	return nil
 }

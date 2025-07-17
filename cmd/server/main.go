@@ -39,10 +39,10 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to start robot manager")
 	}
 
-	// 创建客户端管理器
-	clientManager := services.NewClientManager(robotManager)
-
 	gameService := services.NewGameService()
+
+	// 创建客户端管理器
+	clientManager := services.NewClientManager(robotManager, gameService)
 
 	// 创建处理器
 	wsHandlers := handlers.NewWebSocketHandlers(robotManager, clientManager, gameService)

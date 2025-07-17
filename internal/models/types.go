@@ -152,3 +152,24 @@ type WebRTCRegisterResponse struct {
 	Stream  *WebRTCStream `json:"stream,omitempty"`
 	Message string        `json:"message"`
 }
+
+// 客户端事件类型
+type ClientEventType string
+
+const (
+	ClientEventConnected    ClientEventType = "connected"
+	ClientEventDisconnected ClientEventType = "disconnected"
+	ClientEventCommand      ClientEventType = "command"
+	ClientEventError        ClientEventType = "error"
+	ClientEventGameJoin     ClientEventType = "game_join"
+	ClientEventGameLeave    ClientEventType = "game_leave"
+)
+
+// 客户端事件
+type ClientEvent struct {
+	Type      ClientEventType `json:"type"`
+	UCode     string          `json:"ucode"`
+	Timestamp time.Time       `json:"timestamp"`
+	Message   string          `json:"message"`
+	Data      interface{}     `json:"data,omitempty"`
+}
