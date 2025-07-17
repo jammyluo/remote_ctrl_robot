@@ -90,28 +90,6 @@ func (cm *ClientManager) AddClient(client *models.Client, conn *websocket.Conn) 
 	cm.connections[client.UCode] = conn
 	cm.services[client.UCode] = service
 
-	// 发送欢迎消息
-	welcomeMsg := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    models.CMD_TYPE_REGISTER,
-		Sequence:   0,
-		UCode:      client.UCode,
-		ClientType: client.ClientType,
-		Version:    client.Version,
-		Data: models.CMD_RESPONSE{
-			Success:   true,
-			Message:   "连接成功",
-			Timestamp: time.Now().Unix(),
-		},
-	}
-
-	if err := conn.WriteJSON(welcomeMsg); err != nil {
-		log.Error().
-			Err(err).
-			Str("ucode", client.UCode).
-			Msg("Failed to send welcome message")
-	}
-
 	return nil
 }
 
@@ -311,34 +289,4 @@ func (cm *ClientManager) CleanupDisconnectedClients() {
 				Msg("Disconnected client cleaned up")
 		}
 	}
-}
-
-// GetClientStatistics 获取客户端统计信息
-func (cm *ClientManager) GetClientStatistics() map[string]interface{} {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	stats := make(map[string]interface{})
-	stats["total_clients"] = len(cm.clients)
-
-	connectedCount := 0
-	operatorCount := 0
-	robotCount := 0
-
-	for _, client := range cm.clients {
-		if client.Connected {
-			connectedCount++
-		}
-		if client.ClientType == models.ClientTypeOperator {
-			operatorCount++
-		} else if client.ClientType == models.ClientTypeRobot {
-			robotCount++
-		}
-	}
-
-	stats["connected_clients"] = connectedCount
-	stats["operator_clients"] = operatorCount
-	stats["robot_clients"] = robotCount
-
-	return stats
 }

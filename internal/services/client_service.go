@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"remote-ctrl-robot/internal/models"
+	"remote-ctrl-robot/internal/utils"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -150,34 +151,6 @@ func (s *ClientService) Disconnect() error {
 	return nil
 }
 
-// SendMessage 发送消息给客户端
-func (s *ClientService) SendMessage(message models.WebSocketMessage) error {
-	s.mutex.RLock()
-	if !s.connected || s.conn == nil {
-		s.mutex.RUnlock()
-		return fmt.Errorf("client not connected")
-	}
-	s.mutex.RUnlock()
-
-	if err := s.conn.WriteJSON(message); err != nil {
-		log.Error().
-			Err(err).
-			Str("ucode", s.client.UCode).
-			Msg("Failed to send message to client")
-
-		s.emitEvent(models.ClientEventError, fmt.Sprintf("消息发送失败: %v", err))
-
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-
-	log.Debug().
-		Str("ucode", s.client.UCode).
-		Str("command", string(message.Command)).
-		Msg("Message sent to client successfully")
-
-	return nil
-}
-
 // IsConnected 检查是否连接
 func (s *ClientService) IsConnected() bool {
 	s.mutex.RLock()
@@ -315,7 +288,7 @@ func (s *ClientService) handleMessage(messageType int, data []byte) error {
 			Str("ucode", s.client.UCode).
 			Str("command", string(message.Command)).
 			Msg("Unknown client message command")
-		return s.sendResponse(&message, "未知命令", false)
+		return utils.SendError(s.conn, &message, "未知命令")
 	}
 }
 
@@ -331,12 +304,12 @@ func (s *ClientService) handleBindRobot(message *models.WebSocketMessage) error 
 	// 检查机器人是否存在
 	robot, err := s.robotManager.GetRobot(bindData.UCode)
 	if err != nil {
-		return s.sendResponse(message, "机器人不存在", false)
+		return utils.SendError(s.conn, message, "机器人不存在")
 	}
 
 	// 检查机器人是否在线
 	if !robot.GetService().IsConnected() {
-		return s.sendResponse(message, "机器人未连接", false)
+		return utils.SendError(s.conn, message, "机器人未连接")
 	}
 
 	// 绑定机器人（这里可以添加绑定逻辑）
@@ -347,7 +320,7 @@ func (s *ClientService) handleBindRobot(message *models.WebSocketMessage) error 
 
 	s.emitEvent(models.ClientEventCommand, fmt.Sprintf("绑定机器人: %s", bindData.UCode))
 
-	return s.sendResponse(message, "机器人绑定成功", true)
+	return utils.SendSuccess(s.conn, message, "机器人绑定成功")
 }
 
 // handleControlRobot 处理机器人控制
@@ -381,103 +354,59 @@ func (s *ClientService) handleControlRobot(message *models.WebSocketMessage) err
 	// 获取在线机器人
 	robots := s.robotManager.GetOnlineRobots()
 	if len(robots) == 0 {
-		return s.sendResponse(message, "没有可用的在线机器人", false)
+		return utils.SendError(s.conn, message, "没有可用的在线机器人")
 	}
 
 	// 发送命令到第一个在线机器人
 	response, err := s.robotManager.SendCommand(robots[0].UCode, command)
 	if err != nil {
-		return s.sendResponse(message, fmt.Sprintf("命令发送失败: %v", err), false)
+		return utils.SendError(s.conn, message, fmt.Sprintf("命令发送失败: %v", err))
 	}
 
 	s.emitEvent(models.ClientEventCommand, fmt.Sprintf("控制命令: %s", controlData.Action))
 
-	// 发送响应
-	wsResponse := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    models.CMD_TYPE_CONTROL_ROBOT,
-		Sequence:   message.Sequence,
-		UCode:      message.UCode,
-		ClientType: message.ClientType,
-		Version:    message.Version,
-		Data:       response,
-	}
-
-	return s.SendMessage(wsResponse)
+	return utils.SendCustom(s.conn, message, response)
 }
 
 // handlePing 处理心跳
 func (s *ClientService) handlePing(message *models.WebSocketMessage) error {
-	response := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    models.CMD_TYPE_PING,
-		Sequence:   message.Sequence,
-		UCode:      message.UCode,
-		ClientType: message.ClientType,
-		Version:    message.Version,
-		Data: models.CMD_RESPONSE{
-			Success:   true,
-			Message:   "pong",
-			Timestamp: time.Now().Unix(),
-		},
-	}
-
-	return s.SendMessage(response)
+	return utils.SendSuccess(s.conn, message, "pong")
 }
 
 // 游戏相关处理方法
 func (s *ClientService) handleJoinGame(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏加入逻辑
 	s.emitEvent(models.ClientEventGameJoin, "加入游戏")
-	return s.sendResponse(message, "加入游戏成功", true)
+	return utils.SendSuccess(s.conn, message, "加入游戏成功")
 }
 
 func (s *ClientService) handleLeaveGame(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏离开逻辑
 	s.emitEvent(models.ClientEventGameLeave, "离开游戏")
-	return s.sendResponse(message, "离开游戏成功", true)
+	return utils.SendSuccess(s.conn, message, "离开游戏成功")
 }
 
 func (s *ClientService) handleGameShoot(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏射击逻辑
-	return s.sendResponse(message, "射击命令发送成功", true)
+	return utils.SendSuccess(s.conn, message, "射击命令发送成功")
 }
 
 func (s *ClientService) handleGameMove(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏移动逻辑
-	return s.sendResponse(message, "移动命令发送成功", true)
+	return utils.SendSuccess(s.conn, message, "移动命令发送成功")
 }
 
 func (s *ClientService) handleGameStatus(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏状态获取逻辑
-	return s.sendResponse(message, "游戏状态获取成功", true)
+	return utils.SendSuccess(s.conn, message, "游戏状态获取成功")
 }
 
 func (s *ClientService) handleGameStart(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏开始逻辑
-	return s.sendResponse(message, "游戏开始成功", true)
+	return utils.SendSuccess(s.conn, message, "游戏开始成功")
 }
 
 func (s *ClientService) handleGameStop(message *models.WebSocketMessage) error {
 	// 这里可以添加游戏停止逻辑
-	return s.sendResponse(message, "游戏停止成功", true)
-}
-
-// sendResponse 发送统一响应
-func (s *ClientService) sendResponse(message *models.WebSocketMessage, msg string, success bool) error {
-	response := models.WebSocketMessage{
-		Type:       models.WSMessageTypeResponse,
-		Command:    message.Command,
-		Sequence:   message.Sequence,
-		UCode:      message.UCode,
-		ClientType: message.ClientType,
-		Version:    message.Version,
-		Data: models.CMD_RESPONSE{
-			Success:   success,
-			Message:   msg,
-			Timestamp: time.Now().Unix(),
-		},
-	}
-
-	return s.SendMessage(response)
+	return utils.SendSuccess(s.conn, message, "游戏停止成功")
 }

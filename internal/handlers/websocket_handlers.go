@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"remote-ctrl-robot/internal/models"
 	"remote-ctrl-robot/internal/services"
+	"remote-ctrl-robot/internal/utils"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -19,10 +19,8 @@ type WebSocketHandlers struct {
 	upgrader websocket.Upgrader
 
 	// 连接管理
-	ctx    context.Context
-	cancel context.CancelFunc
-	mutex  sync.RWMutex
-
+	ctx           context.Context
+	cancel        context.CancelFunc
 	clientManager *services.ClientManager
 	robotManager  *services.RobotManager
 }
@@ -39,44 +37,6 @@ func NewWebSocketHandlers(robotManager *services.RobotManager, clientManager *se
 		cancel:        cancel,
 		clientManager: clientManager,
 		robotManager:  robotManager,
-	}
-}
-
-func (h *WebSocketHandlers) sendResponseError(conn *websocket.Conn, msg *models.WebSocketMessage, message string) {
-	cmdResponse := models.CMD_RESPONSE{
-		Success:   false,
-		Message:   message,
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	response := models.WebSocketMessage{
-		Type:     models.WSMessageTypeResponse,
-		Command:  msg.Command,
-		Sequence: msg.Sequence,
-		Data:     cmdResponse,
-	}
-
-	if err := conn.WriteJSON(response); err != nil {
-		log.Error().Err(err).Msg("Failed to send register error")
-	}
-}
-
-func (h *WebSocketHandlers) sendResponse(conn *websocket.Conn, msg *models.WebSocketMessage, message string) {
-	cmdResponse := models.CMD_RESPONSE{
-		Success:   true,
-		Message:   message,
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	response := models.WebSocketMessage{
-		Type:     models.WSMessageTypeResponse,
-		Command:  msg.Command,
-		Sequence: msg.Sequence,
-		Data:     cmdResponse,
-	}
-
-	if err := conn.WriteJSON(response); err != nil {
-		log.Error().Err(err).Msg("Failed to send success message")
 	}
 }
 
@@ -140,26 +100,24 @@ func (h *WebSocketHandlers) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 	// 注册：第一条消息必须为register
 	var msg models.WebSocketMessage
 	if err := conn.ReadJSON(&msg); err != nil {
-		h.sendResponseError(conn, &msg, "Failed to parse registration message")
+		utils.SendError(conn, &msg, "Failed to parse registration message")
 		conn.Close()
 		return
 	}
 	if msg.Command != models.CMD_TYPE_REGISTER {
-		h.sendResponseError(conn, &msg, "Invalid message type")
+		utils.SendError(conn, &msg, "Invalid message type")
 		conn.Close()
 		return
 	}
 
 	err = h.checkWSMessage(msg)
 	if err != nil {
-		h.sendResponseError(conn, &msg, err.Error())
+		utils.SendError(conn, &msg, err.Error())
 		conn.Close()
 		return
 	}
-	if h.handleRegistration(conn, &msg) {
-		// 使用 goroutine 异步处理消息
-		go h.handleMessagesWithTimeout(conn)
-	}
+
+	h.handleRegistration(conn, &msg)
 }
 
 // 注册 - 返回是否成功
@@ -189,7 +147,7 @@ func (h *WebSocketHandlers) handleRegistration(conn *websocket.Conn, msg *models
 		robot, err := h.robotManager.RegisterRobot(registration)
 		if err != nil {
 			log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to register robot")
-			h.sendResponseError(conn, msg, "Failed to register robot")
+			utils.SendError(conn, msg, "Failed to register robot")
 			return false
 		}
 
@@ -199,11 +157,23 @@ func (h *WebSocketHandlers) handleRegistration(conn *websocket.Conn, msg *models
 		}
 	}
 
-	// 添加到客户端管理器
-	if err := h.clientManager.AddClient(client, conn); err != nil {
-		log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to add client")
-		h.sendResponseError(conn, msg, "Failed to add client")
-		return false
+	// 如果是操作员客户端，添加到客户端管理器
+	if msg.ClientType == models.ClientTypeOperator {
+		if err := h.clientManager.AddClient(client, conn); err != nil {
+			log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to add client")
+			utils.SendError(conn, msg, "Failed to add client")
+			return false
+		} else {
+
+			// 发送欢迎消息
+			if err := utils.SendSuccess(conn, msg, "连接成功"); err != nil {
+				log.Error().
+					Err(err).
+					Str("ucode", client.UCode).
+					Msg("Failed to send welcome message")
+			}
+			return true
+		}
 	}
 
 	log.Info().
@@ -212,82 +182,6 @@ func (h *WebSocketHandlers) handleRegistration(conn *websocket.Conn, msg *models
 		Str("version", msg.Version).
 		Msg("Client registered successfully")
 
-	h.sendResponse(conn, msg, "Registration successful")
+	utils.SendSuccess(conn, msg, "Registration successful")
 	return true
-}
-
-// 处理消息（带超时）
-func (h *WebSocketHandlers) handleMessagesWithTimeout(conn *websocket.Conn) {
-	defer func() {
-		h.cleanupConnection(conn)
-		conn.Close()
-	}()
-
-	for {
-		select {
-		case <-h.ctx.Done():
-			return
-		default:
-			// 设置读取超时
-			conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-
-			_, data, err := conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Error().Err(err).Msg("WebSocket read error")
-				}
-				return
-			}
-
-			// 客户端消息现在由ClientService处理
-			// 这里不需要处理，因为ClientService已经在AddClient时设置了连接
-			log.Debug().Str("data_length", fmt.Sprintf("%d", len(data))).Msg("Message received, handled by ClientService")
-		}
-	}
-}
-
-// 清理连接
-func (h *WebSocketHandlers) cleanupConnection(conn *websocket.Conn) {
-	// 查找对应的客户端
-	clients := h.clientManager.GetAllClients()
-	for _, client := range clients {
-		if client.RemoteAddr == conn.RemoteAddr().String() {
-			h.clientManager.RemoveClient(client.UCode)
-			break
-		}
-	}
-}
-
-// 关闭处理器
-func (h *WebSocketHandlers) Shutdown() {
-	h.cancel()
-	log.Info().Msg("WebSocket handlers shutdown")
-}
-
-// 获取所有机器人连接
-func (h *WebSocketHandlers) GetAllRobotConnections() []*models.Client {
-	var robotClients []*models.Client
-	clients := h.clientManager.GetAllClients()
-
-	for _, client := range clients {
-		if client.ClientType == models.ClientTypeRobot {
-			robotClients = append(robotClients, client)
-		}
-	}
-
-	return robotClients
-}
-
-// 获取所有操作员连接
-func (h *WebSocketHandlers) GetAllOperatorConnections() []*models.Client {
-	var operatorClients []*models.Client
-	clients := h.clientManager.GetAllClients()
-
-	for _, client := range clients {
-		if client.ClientType == models.ClientTypeOperator {
-			operatorClients = append(operatorClients, client)
-		}
-	}
-
-	return operatorClients
 }

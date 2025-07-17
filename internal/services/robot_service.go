@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"remote-ctrl-robot/internal/models"
+	"remote-ctrl-robot/internal/utils"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -389,5 +390,6 @@ func (s *RobotService) handlePing(message models.WebSocketMessage) error {
 	}
 
 	s.emitEvent(models.RobotEventHeartbeat, "机器人心跳")
+	return utils.SendSuccess(s.conn, &message, "pong")
 	return nil
 }

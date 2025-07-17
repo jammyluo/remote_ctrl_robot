@@ -463,18 +463,18 @@ func (h *APIHandlers) GetAllWebRTCPlayURLs(w http.ResponseWriter, r *http.Reques
 
 // 获取客户端列表
 func (h *APIHandlers) GetClients(w http.ResponseWriter, r *http.Request) {
-	robotClients := h.wsHandlers.GetAllRobotConnections()
-	operatorClients := h.wsHandlers.GetAllOperatorConnections()
+	// robotClients := h.wsHandlers.GetAllRobotConnections()
+	// operatorClients := h.wsHandlers.GetAllOperatorConnections()
 
-	response := map[string]interface{}{
-		"success":   true,
-		"total":     len(robotClients) + len(operatorClients),
-		"robots":    robotClients,
-		"operators": operatorClients,
-	}
+	// response := map[string]interface{}{
+	// 	"success":   true,
+	// 	"total":     len(robotClients) + len(operatorClients),
+	// 	"robots":    robotClients,
+	// 	"operators": operatorClients,
+	// }
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	// w.Header().Set("Content-Type", "application/json")
+	// json.NewEncoder(w).Encode(response)
 }
 
 // 获取指定UCode的客户端信息
