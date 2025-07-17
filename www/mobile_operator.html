@@ -370,6 +370,13 @@
         let joystick = null;
         let lastVx = 0, lastVy = 0;
         let actionIntervals = {};
+        
+        // 心跳相关变量
+        let heartbeatInterval = null;
+        let heartbeatTimeout = null;
+        let lastPingTime = 0;
+        let connectionLatency = 0;
+        let heartbeatEnabled = false;
 
         // 页面加载完成后初始化
         window.onload = function() {
@@ -654,6 +661,9 @@
                     updateConnectionStatus('已连接', true);
                     console.log('WebSocket连接成功');
                     
+                    // 启动心跳
+                    startHeartbeat();
+                    
                     // 注册操作者
                     const registerMessage = {
                         type: 'Request',
@@ -701,6 +711,9 @@
                     isRegistered = false;
                     console.log('WebSocket连接关闭:', event.code, event.reason);
                     
+                    // 停止心跳
+                    stopHeartbeat();
+                    
                     if (event.code === 1000) {
                         updateConnectionStatus('连接已关闭', false);
                     } else {
@@ -739,12 +752,124 @@
                     updateConnectionStatus('已连接并注册', true);
                 } else if (message.command === 'CMD_CONTROL_ROBOT' && message.data && message.data.success) {
                     console.log('控制响应: ' + JSON.stringify(message.data));
+                } else if (message.command === 'CMD_PING' && message.data && message.data.success) {
+                    // 处理心跳响应
+                    handlePongResponse();
                 } else {
                     updateConnectionStatus('绑定失败', false);
                 }
             }
         }
 
+        // 启动心跳
+        function startHeartbeat() {
+            if (heartbeatEnabled) return;
+            
+            heartbeatEnabled = true;
+            console.log('启动心跳机制');
+            
+            // 每10秒发送一次心跳
+            heartbeatInterval = setInterval(() => {
+                if (isConnected && ws && ws.readyState === WebSocket.OPEN) {
+                    sendHeartbeat();
+                }
+            }, 10000); // 10秒
+        }
+        
+        // 停止心跳
+        function stopHeartbeat() {
+            heartbeatEnabled = false;
+            
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+            
+            if (heartbeatTimeout) {
+                clearTimeout(heartbeatTimeout);
+                heartbeatTimeout = null;
+            }
+            
+            console.log('停止心跳机制');
+        }
+        
+        // 发送心跳
+        function sendHeartbeat() {
+            if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            lastPingTime = Date.now();
+            
+            const heartbeatMessage = {
+                type: 'Request',
+                command: 'CMD_PING',
+                sequence: lastPingTime,
+                ucode: currentUCode,
+                client_type: 'operator',
+                version: '1.0.0',
+                data: {
+                    timestamp: lastPingTime
+                }
+            };
+            
+            try {
+                ws.send(JSON.stringify(heartbeatMessage));
+                console.log('发送心跳包');
+                
+                // 设置心跳超时检测
+                heartbeatTimeout = setTimeout(() => {
+                    console.warn('心跳超时，连接可能已断开');
+                    handleHeartbeatTimeout();
+                }, 10000); // 10秒超时
+                
+            } catch (error) {
+                console.error('发送心跳失败:', error);
+                handleConnectionError();
+            }
+        }
+        
+        // 处理心跳响应
+        function handlePongResponse() {
+            if (heartbeatTimeout) {
+                clearTimeout(heartbeatTimeout);
+                heartbeatTimeout = null;
+            }
+            
+            // 计算延迟
+            const now = Date.now();
+            connectionLatency = now - lastPingTime;
+            
+            console.log(`心跳响应，延迟: ${connectionLatency}ms`);
+            
+            // 更新连接状态显示延迟信息
+            if (isConnected) {
+                updateConnectionStatus('已连接', true);
+            }
+        }
+        
+        // 处理心跳超时
+        function handleHeartbeatTimeout() {
+            console.error('心跳超时，连接可能已断开');
+            updateConnectionStatus('连接超时', false);
+            
+            // 尝试重新连接
+            if (isConnected) {
+                isConnected = false;
+                isRegistered = false;
+                
+                // 触发重连
+                const robotUCode = document.getElementById('robotUCode').value;
+                const operatorId = document.getElementById('operatorId').value;
+                const serverUrl = document.getElementById('serverUrl').value;
+                
+                setTimeout(() => {
+                    if (!isConnected) {
+                        console.log('心跳超时，尝试重新连接...');
+                        connectAndRegister(robotUCode, operatorId, serverUrl);
+                    }
+                }, 2000);
+            }
+        }
+        
         // 更新连接状态
         function updateConnectionStatus(status, connected, connecting = false) {
             const statusElement = document.getElementById('connectionStatus');
@@ -754,6 +879,10 @@
                 statusElement.className = 'connection-status connecting';
             } else if (connected) {
                 statusElement.className = 'connection-status connected';
+                // 显示延迟信息
+                if (connectionLatency > 0) {
+                    statusElement.title = `延迟: ${connectionLatency}ms`;
+                }
             } else {
                 statusElement.className = 'connection-status';
             }
@@ -761,6 +890,9 @@
 
         // 页面卸载时清理资源
         window.onbeforeunload = function() {
+            // 停止心跳
+            stopHeartbeat();
+            
             // 停止所有动作
             Object.keys(actionIntervals).forEach(actionId => {
                 stopAction(actionId);
