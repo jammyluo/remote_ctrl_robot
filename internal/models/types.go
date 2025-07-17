@@ -122,9 +122,11 @@ type JanusSession struct {
 
 // 机器人配置
 type RobotConfig struct {
-	WebSocketURL string `json:"websocket_url"`
-	Timeout      int    `json:"timeout_seconds"`
-	MaxRetries   int    `json:"max_retries"`
+	WebSocketURL      string `json:"websocket_url"`              // WebSocket连接地址
+	Timeout           int    `json:"timeout_seconds"`            // 连接超时时间
+	MaxRetries        int    `json:"max_retries"`                // 最大重试次数
+	HeartbeatInterval int    `json:"heartbeat_interval_seconds"` // 心跳间隔
+	ReconnectInterval int    `json:"reconnect_interval_seconds"` // 重连间隔
 }
 
 // WebRTC流信息

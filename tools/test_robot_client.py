@@ -133,7 +133,7 @@ class RobotClient:
             print(f"📤 发送状态请求: {json.dumps(status_msg, ensure_ascii=False)}")
             self.sequence += 1
     
-    def keep_alive(self, interval=30):
+    def keep_alive(self, interval=10):
         """保持连接活跃"""
         while self.connected:
             time.sleep(interval)
@@ -161,13 +161,13 @@ def main():
             
             # 发送状态请求
             time.sleep(2)
-            robot.send_status_request()
+            
             
             # 保持运行
             print(f"🔄 机器人 {ucode} 运行中... (按 Ctrl+C 退出)")
             try:
                 while robot.connected:
-                    time.sleep(1)
+                    time.sleep(10)
             except KeyboardInterrupt:
                 print("\n🛑 收到退出信号")
         

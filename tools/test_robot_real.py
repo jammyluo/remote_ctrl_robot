@@ -68,7 +68,7 @@ class RobotClient:
             self.sport_client = SportClient()
             self.sport_client.SetTimeout(10.0)
             ret = self.sport_client.Init()
-            
+            ret = 0
             if ret == 0:
                 print("✅ Go2 SDK 初始化成功")
                 # 让机器人站起来
@@ -342,7 +342,7 @@ def main():
         sys.exit(1)
     
     ucode = sys.argv[1]
-    network_interface = sys.argv[2] if len(sys.argv) > 2 else "lo"
+    network_interface = sys.argv[2] if len(sys.argv) > 2 else "en9"
     
     print(f"🤖 启动机器人客户端")
     print(f"   UCode: {ucode}")

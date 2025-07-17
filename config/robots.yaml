@@ -1,0 +1,95 @@
+# 机器人配置文件
+# 支持多个机器人配置
+
+robots:
+  # 机器人1 - B2型号
+  - ucode: "robot_b2_001"
+    name: "B2机器人1"
+    type: "b2"
+    version: "1.0"
+    ip_address: "192.168.1.100"
+    port: 8080
+    capabilities:
+      - "move"
+      - "stop"
+      - "reset"
+      - "stand"
+      - "sit"
+    config:
+      websocket_url: "ws://192.168.1.100:8080"
+      timeout_seconds: 30
+      max_retries: 3
+      heartbeat_interval_seconds: 10
+      reconnect_interval_seconds: 5
+
+  # 机器人2 - Go2型号
+  - ucode: "robot_go2_001"
+    name: "Go2机器人1"
+    type: "go2"
+    version: "1.0"
+    ip_address: "192.168.1.101"
+    port: 8080
+    capabilities:
+      - "move"
+      - "stop"
+      - "reset"
+      - "stand"
+      - "sit"
+      - "dance"
+    config:
+      websocket_url: "ws://192.168.1.101:8080"
+      timeout_seconds: 30
+      max_retries: 3
+      heartbeat_interval_seconds: 10
+      reconnect_interval_seconds: 5
+
+  # 机器人3 - G1型号
+  - ucode: "robot_g1_001"
+    name: "G1机器人1"
+    type: "g1"
+    version: "1.0"
+    ip_address: "192.168.1.102"
+    port: 8080
+    capabilities:
+      - "move"
+      - "stop"
+      - "reset"
+      - "arm_control"
+      - "gripper_control"
+    config:
+      websocket_url: "ws://192.168.1.102:8080"
+      timeout_seconds: 30
+      max_retries: 3
+      heartbeat_interval_seconds: 10
+      reconnect_interval_seconds: 5
+
+# 系统配置
+system:
+  # 清理离线机器人的超时时间（分钟）
+  cleanup_timeout_minutes: 10
+  
+  # 健康检查间隔（秒）
+  health_check_interval_seconds: 30
+  
+  # 客户端清理间隔（分钟）
+  client_cleanup_interval_minutes: 5
+  
+  # 最大重连次数
+  max_reconnect_attempts: 5
+  
+  # 日志级别
+  log_level: "info"
+
+# 游戏配置
+game:
+  # 默认游戏配置
+  default_config:
+    max_health: 100
+    bullet_damage: 20
+    bullet_range: 50
+    bullet_speed: 10
+    respawn_time: 10
+    game_duration: 300
+    map_width: 1000
+    map_height: 1000
+    shoot_cooldown: 1.0 

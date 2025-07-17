@@ -13,18 +13,20 @@ import (
 )
 
 type APIHandlers struct {
-	janusService *services.JanusService
-	robotService *services.RobotService
-	wsHandlers   *WebSocketHandlers
-	startTime    time.Time
+	janusService  *services.JanusService
+	robotManager  *services.RobotManager
+	clientManager *services.ClientManager
+	wsHandlers    *WebSocketHandlers
+	startTime     time.Time
 }
 
-func NewAPIHandlers(janusService *services.JanusService, robotService *services.RobotService, wsHandlers *WebSocketHandlers) *APIHandlers {
+func NewAPIHandlers(janusService *services.JanusService, robotManager *services.RobotManager, clientManager *services.ClientManager, wsHandlers *WebSocketHandlers) *APIHandlers {
 	return &APIHandlers{
-		robotService: robotService,
-		janusService: janusService,
-		wsHandlers:   wsHandlers,
-		startTime:    time.Now(),
+		janusService:  janusService,
+		robotManager:  robotManager,
+		clientManager: clientManager,
+		wsHandlers:    wsHandlers,
+		startTime:     time.Now(),
 	}
 }
 
@@ -323,46 +325,37 @@ func (h *APIHandlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 // 检查机器人是否在线
 func (h *APIHandlers) isRobotOnline(ucode string) bool {
-	h.wsHandlers.mutex.RLock()
-	defer h.wsHandlers.mutex.RUnlock()
-
-	_, exists := h.wsHandlers.Ucode2Conn[ucode]
-	return exists
+	robot, err := h.robotManager.GetRobot(ucode)
+	if err != nil {
+		return false
+	}
+	return robot.IsOnline()
 }
 
 // 发送命令到指定机器人
 func (h *APIHandlers) sendCommandToRobot(ucode string, command models.CMD_CONTROL_ROBOT) error {
-	h.wsHandlers.mutex.RLock()
-	conn, exists := h.wsHandlers.Ucode2Conn[ucode]
-	h.wsHandlers.mutex.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("robot with UCODE %s is not online", ucode)
+	// 创建机器人命令
+	robotCommand := &models.RobotCommand{
+		Action:        command.Action,
+		Params:        command.ParamMaps,
+		Priority:      5,
+		Timestamp:     command.Timestamp,
+		OperatorUCode: "api_client",
 	}
 
-	message := models.WebSocketMessage{
-		Type:       models.WSMessageTypeRequest,
-		Command:    models.CMD_TYPE_CONTROL_ROBOT,
-		Sequence:   0,
-		UCode:      ucode,
-		ClientType: models.ClientTypeOperator,
-		Version:    "1.0.0",
-		Data:       command,
-	}
-
-	return conn.WriteJSON(message)
+	// 发送命令到机器人
+	_, err := h.robotManager.SendCommand(ucode, robotCommand)
+	return err
 }
 
 // 获取在线机器人列表
 func (h *APIHandlers) getOnlineRobots() []string {
-	h.wsHandlers.mutex.RLock()
-	defer h.wsHandlers.mutex.RUnlock()
-
-	robots := make([]string, 0, len(h.wsHandlers.Ucode2Conn))
-	for ucode := range h.wsHandlers.Ucode2Conn {
-		robots = append(robots, ucode)
+	robots := h.robotManager.GetOnlineRobots()
+	ucodes := make([]string, len(robots))
+	for i, robot := range robots {
+		ucodes[i] = robot.UCode
 	}
-	return robots
+	return ucodes
 }
 
 // 发送JSON响应的辅助方法

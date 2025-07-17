@@ -33,15 +33,20 @@ func main() {
 		viper.GetInt("janus.stream_id"),
 	)
 
-	robotService := services.NewRobotService(
-		viper.GetString("robot.websocket_url"),
-	)
+	// 创建机器人管理器
+	robotManager := services.NewRobotManager()
+	if err := robotManager.Start(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start robot manager")
+	}
+
+	// 创建客户端管理器
+	clientManager := services.NewClientManager(robotManager)
 
 	gameService := services.NewGameService()
 
 	// 创建处理器
-	wsHandlers := handlers.NewWebSocketHandlers(robotService, gameService)
-	apiHandlers := handlers.NewAPIHandlers(janusService, robotService, wsHandlers)
+	wsHandlers := handlers.NewWebSocketHandlers(robotManager, clientManager, gameService)
+	apiHandlers := handlers.NewAPIHandlers(janusService, robotManager, clientManager, wsHandlers)
 
 	// 创建HTTP服务器
 	mux := http.NewServeMux()
@@ -97,7 +102,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				robotService.CleanupDisconnectedClients()
+				clientManager.CleanupDisconnectedClients()
 				// 清理无效的WebRTC流
 				cleaned := janusService.CleanupInactiveStreams()
 				if cleaned > 0 {
