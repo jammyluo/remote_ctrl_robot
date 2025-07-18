@@ -23,16 +23,6 @@ const (
 	WSMessageTypeRequest  WSMessageType = "Request"
 )
 
-type Client struct {
-	UCode      string     `json:"ucode"`       // 客户端唯一标识
-	Name       string     `json:"name"`        // 客户端名称
-	ClientType ClientType `json:"type"`        // 客户端类型 robot, operator
-	Version    string     `json:"version"`     // 客户端版本
-	Connected  bool       `json:"connected"`   // 是否连接
-	LastSeen   time.Time  `json:"last_seen"`   // 最后活跃时间
-	RemoteAddr string     `json:"remote_addr"` // 远程地址
-}
-
 const (
 	CMD_TYPE_REGISTER            CommandType = "CMD_REGISTER"            // 注册
 	CMD_TYPE_BIND_ROBOT          CommandType = "CMD_BIND_ROBOT"          // 机器人绑定
@@ -46,10 +36,10 @@ const (
 // WebSocket消息
 type WebSocketMessage struct {
 	Type       WSMessageType `json:"type"`        // 消息类型: Response, Request
+	ClientType ClientType    `json:"client_type"` // 客户端类型: robot, operator
 	Command    CommandType   `json:"command"`     // 命令类型
 	Sequence   int64         `json:"sequence"`    // 序列号
 	UCode      string        `json:"ucode"`       // UCode
-	ClientType ClientType    `json:"client_type"` // 客户端类型: robot, operator
 	Version    string        `json:"version"`     // 版本
 	Data       interface{}   `json:"data"`        // 数据
 }

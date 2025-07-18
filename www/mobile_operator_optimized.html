@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>机器人控制 - 优化版</title>
+    <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* 背景视频 */
+        .background-video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: -1;
+            opacity: 0.8;
+        }
+        
+        /* 视频遮罩层 */
+        .video-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.3) 100%);
+            z-index: 0;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            z-index: 1;
+        }
+        
+        /* 顶部状态栏 */
+        .status-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: rgba(0,0,0,0.4);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 10;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .status-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .connection-status {
+            font-size: 14px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: #f44336;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
+        }
+        
+        .connection-status.connected {
+            background: #4caf50;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+        }
+        
+        .connection-status.connecting {
+            background: #ff9800;
+            animation: pulse 1.5s infinite;
+            box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+        }
+        
+        .connection-details {
+            font-size: 11px;
+            color: rgba(255,255,255,0.7);
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.05); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        .settings-btn {
+            background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+        }
+        
+        .settings-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
+        }
+        
+        /* 摇杆区域 - 左下角 */
+        .joystick-area {
+            position: absolute;
+            bottom: 25px;
+            left: 25px;
+            width: 160px;
+            height: 160px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid rgba(255,255,255,0.2);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        
+        /* 功能键区域 - 右下角 */
+        .action-buttons {
+            position: absolute;
+            bottom: 25px;
+            right: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .action-btn {
+            width: 85px;
+            height: 85px;
+            background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            user-select: none;
+            -webkit-user-select: none;
+            box-shadow: 0 4px 12px rgba(244, 67, 54, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .action-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+        
+        .action-btn:hover::before {
+            left: 100%;
+        }
+        
+        .action-btn:hover {
+            background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%);
+            transform: scale(1.05);
+            box-shadow: 0 6px 16px rgba(244, 67, 54, 0.4);
+        }
+        
+        .action-btn:active {
+            background: linear-gradient(135deg, #b71c1c 0%, #8e0000 100%);
+            transform: scale(0.95);
+        }
+        
+        .action-btn.active {
+            background: linear-gradient(135deg, #b71c1c 0%, #8e0000 100%);
+            box-shadow: 0 0 20px rgba(183, 28, 28, 0.8);
+            animation: buttonPulse 0.5s ease-in-out;
+        }
+        
+        @keyframes buttonPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        /* 速度显示 */
+        .speed-display {
+            position: absolute;
+            bottom: 200px;
+            left: 25px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 15px;
+            font-size: 13px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        
+        .speed-value {
+            font-weight: bold;
+            color: #4caf50;
+        }
+        
+        /* 设置对话框 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 20;
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            padding: 35px;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 420px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        
+        .modal h2 {
+            margin-bottom: 25px;
+            text-align: center;
+            color: #2196f3;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            background: rgba(255,255,255,0.05);
+            color: white;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #2196f3;
+            background: rgba(255,255,255,0.1);
+            box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.2);
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        }
+        
+        .modal-btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #666 0%, #555 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 102, 102, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(102, 102, 102, 0.4);
+        }
+        
+        /* 错误提示 */
+        .error-message {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            color: #f44336;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        /* 响应式设计 */
+        @media (orientation: portrait) {
+            .joystick-area {
+                width: 130px;
+                height: 130px;
+                bottom: 20px;
+                left: 20px;
+            }
+            
+            .action-buttons {
+                bottom: 20px;
+                right: 20px;
+            }
+            
+            .action-btn {
+                width: 75px;
+                height: 75px;
+                font-size: 12px;
+            }
+            
+            .speed-display {
+                bottom: 170px;
+                left: 20px;
+                font-size: 12px;
+                padding: 12px;
+            }
+        }
+        
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- 背景视频流 -->
+    <video class="background-video" id="backgroundVideo" autoplay muted loop playsinline>
+        <source src="" type="video/mp4">
+        您的浏览器不支持视频播放
+    </video>
+    
+    <!-- 视频遮罩层 -->
+    <div class="video-overlay"></div>
+    
+    <div class="container">
+        <!-- 顶部状态栏 -->
+        <div class="status-bar">
+            <div class="status-info">
+                <div class="connection-status" id="connectionStatus">未连接</div>
+                <div class="connection-details" id="connectionDetails">点击设置连接</div>
+            </div>
+            <button class="settings-btn" onclick="openSettings()">设置</button>
+        </div>
+        
+        <!-- 摇杆区域 -->
+        <div class="joystick-area" id="joystickZone"></div>
+        
+        <!-- 速度显示 -->
+        <div class="speed-display">
+            <div>vx: <span class="speed-value" id="vxValue">0.00</span> m/s</div>
+            <div>vy: <span class="speed-value" id="vyValue">0.00</span> m/s</div>
+        </div>
+        
+        <!-- 功能键区域 -->
+        <div class="action-buttons">
+            <button class="action-btn" id="shoot" 
+                    onmousedown="startAction('shoot')" 
+                    onmouseup="stopAction('shoot')" 
+                    ontouchstart="startAction('shoot')" 
+                    ontouchend="stopAction('shoot')">
+                射击
+            </button>
+            <button class="action-btn" id="raise" 
+                    onmousedown="startAction('raise')" 
+                    onmouseup="stopAction('raise')" 
+                    ontouchstart="startAction('raise')" 
+                    ontouchend="stopAction('raise')">
+                升高
+            </button>
+            <button class="action-btn" id="lower" 
+                    onmousedown="startAction('lower')" 
+                    onmouseup="stopAction('lower')" 
+                    ontouchstart="startAction('lower')" 
+                    ontouchend="stopAction('lower')">
+                降低
+            </button>
+        </div>
+    </div>
+    
+    <!-- 设置对话框 -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h2>连接设置</h2>
+            <div class="error-message" id="errorMessage"></div>
+            <p style="color: #ccc; font-size: 13px; margin-bottom: 20px; text-align: center; line-height: 1.5;">
+                在iPhone上使用时，请确保输入正确的服务器IP地址<br>
+                建议使用WiFi连接以获得最佳体验
+            </p>
+            <div class="form-group">
+                <label>机器人UCode:</label>
+                <input type="text" id="robotUCode" value="123456" placeholder="输入机器人UCode" maxlength="20" />
+            </div>
+            <div class="form-group">
+                <label>操作者ID:</label>
+                <input type="text" id="operatorId" value="operator_001" placeholder="输入操作者ID" maxlength="20" />
+            </div>
+            <div class="form-group">
+                <label>服务器地址:</label>
+                <input type="text" id="serverUrl" value="" placeholder="例如: 192.168.1.100:8000" />
+            </div>
+            <div class="form-group">
+                <label>视频流地址 (可选):</label>
+                <input type="text" id="srtUrl" value="" placeholder="输入视频流地址 (HLS/HTTP)" />
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn btn-secondary" onclick="closeSettings()">取消</button>
+                <button class="modal-btn btn-primary" onclick="saveSettings()" id="saveBtn">保存并连接</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 配置常量
+        const CONFIG = {
+            THROTTLE_DELAY: 100, // 摇杆数据发送节流延迟(ms)
+            ACTION_INTERVAL: 500, // 动作命令发送间隔(ms)
+            CONNECTION_TIMEOUT: 10000, // 连接超时时间(ms)
+            RECONNECT_DELAY: 3000, // 重连延迟时间(ms)
+            MAX_RECONNECT_ATTEMPTS: 5, // 最大重连次数
+            DEFAULT_SERVER_PORT: '8000'
+        };
+
+        // 全局变量
+        let ws = null;
+        let isConnected = false;
+        let isRegistered = false;
+        let currentUCode = '';
+        let joystick = null;
+        let lastVx = 0, lastVy = 0;
+        let actionIntervals = {};
+        let reconnectAttempts = 0;
+        let throttleTimer = null;
+        let connectionStats = {
+            latency: 0,
+            packetLoss: 0,
+            lastPing: 0
+        };
+
+        // 本地存储管理
+        const Storage = {
+            save: (key, value) => {
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                } catch (e) {
+                    console.warn('本地存储失败:', e);
+                }
+            },
+            load: (key, defaultValue = null) => {
+                try {
+                    const item = localStorage.getItem(key);
+                    return item ? JSON.parse(item) : defaultValue;
+                } catch (e) {
+                    console.warn('读取本地存储失败:', e);
+                    return defaultValue;
+                }
+            }
+        };
+
+        // 页面加载完成后初始化
+        window.onload = function() {
+            initJoystick();
+            initBackgroundVideo();
+            loadSettings();
+            initMobileOptimizations();
+        };
+
+        // 移动设备优化
+        function initMobileOptimizations() {
+            if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                console.log('检测到移动设备，启用移动优化');
+                
+                // 防止页面缩放
+                document.addEventListener('touchstart', function(event) {
+                    if (event.touches.length > 1) {
+                        event.preventDefault();
+                    }
+                }, { passive: false });
+                
+                // 防止双击缩放
+                let lastTouchEnd = 0;
+                document.addEventListener('touchend', function(event) {
+                    const now = (new Date()).getTime();
+                    if (now - lastTouchEnd <= 300) {
+                        event.preventDefault();
+                    }
+                    lastTouchEnd = now;
+                }, false);
+                
+                // 启用触觉反馈
+                if ('vibrate' in navigator) {
+                    console.log('启用触觉反馈');
+                }
+            }
+        }
+
+        // 初始化背景视频
+        function initBackgroundVideo() {
+            const video = document.getElementById('backgroundVideo');
+            
+            video.addEventListener('loadeddata', function() {
+                console.log('视频流加载成功');
+                video.style.display = 'block';
+            });
+            
+            video.addEventListener('error', function(e) {
+                console.error('视频流加载失败:', e);
+                video.style.display = 'none';
+            });
+        }
+
+        // 初始化摇杆
+        function initJoystick() {
+            joystick = nipplejs.create({
+                zone: document.getElementById('joystickZone'),
+                mode: 'dynamic',
+                color: '#2196f3',
+                size: 120,
+                threshold: 0.1,
+                restOpacity: 0.5,
+                lockX: false,
+                lockY: false
+            });
+
+            joystick.on('move', function(evt, data) {
+                if (!data) return;
+                
+                let angle = data.angle ? data.angle.radian : 0;
+                let distance = data.distance || 0;
+                let norm = distance / 100;
+                
+                let cosVal = Math.cos(angle);
+                let sinVal = Math.sin(angle);
+                
+                // 优化速度计算
+                let vy = clamp(cosVal * norm * 1.0, -1.0, 1.0); 
+                let vx = 0;
+                if (sinVal * norm > 0) {
+                    vx = clamp(sinVal * norm * 3.8, -2.5, 3.8); 
+                } else {
+                    vx = clamp(sinVal * norm * 2.5, -2.5, 3.8); 
+                }
+                
+                // 节流发送
+                throttleJoystickMove(vx, vy);
+            });
+
+            joystick.on('end', function() {
+                stopJoystickMove();
+            });
+        }
+
+        // 节流摇杆移动
+        function throttleJoystickMove(vx, vy) {
+            if (throttleTimer) {
+                clearTimeout(throttleTimer);
+            }
+            
+            throttleTimer = setTimeout(() => {
+                sendJoystickMove(vx, vy);
+            }, CONFIG.THROTTLE_DELAY);
+        }
+
+        // 工具函数
+        function clamp(val, min, max) {
+            return Math.max(min, Math.min(max, val));
+        }
+
+        // 发送摇杆移动命令
+        function sendJoystickMove(vx, vy) {
+            if (!isConnected || !isRegistered) return;
+            
+            // 数据变化检测，避免重复发送
+            if (Math.abs(vx - lastVx) < 0.01 && Math.abs(vy - lastVy) < 0.01) return;
+            
+            lastVx = vx; 
+            lastVy = vy;
+            
+            updateSpeedDisplay(vx, vy);
+            
+            const command = {
+                action: "Move",
+                timestamp: Date.now(),
+                params: {
+                    "priority": "1",
+                    "vx": vx.toFixed(2),
+                    "vy": vy.toFixed(2),
+                    "vyaw": "0",
+                }
+            };
+            
+            sendWebSocketMessage('CMD_CONTROL_ROBOT', command);
+        }
+
+        // 更新速度显示
+        function updateSpeedDisplay(vx, vy) {
+            document.getElementById('vxValue').textContent = vx.toFixed(2);
+            document.getElementById('vyValue').textContent = vy.toFixed(2);
+        }
+
+        // 停止摇杆移动
+        function stopJoystickMove() {
+            if (throttleTimer) {
+                clearTimeout(throttleTimer);
+                throttleTimer = null;
+            }
+            sendJoystickMove(0, 0);
+            lastVx = 0; 
+            lastVy = 0;
+            updateSpeedDisplay(0, 0);
+        }
+
+        // 开始功能动作
+        function startAction(actionId) {
+            if (!isConnected || !isRegistered) return;
+            
+            const button = document.getElementById(actionId);
+            if (button) {
+                button.classList.add('active');
+                // 触觉反馈
+                if ('vibrate' in navigator) {
+                    navigator.vibrate(50);
+                }
+            }
+            
+            // 清除之前的定时器
+            if (actionIntervals[actionId]) {
+                clearInterval(actionIntervals[actionId]);
+            }
+            
+            // 立即发送一次命令
+            sendActionCommand(actionId);
+            
+            // 设置定时发送
+            actionIntervals[actionId] = setInterval(() => {
+                sendActionCommand(actionId);
+            }, CONFIG.ACTION_INTERVAL);
+        }
+
+        // 停止功能动作
+        function stopAction(actionId) {
+            if (actionIntervals[actionId]) {
+                clearInterval(actionIntervals[actionId]);
+                delete actionIntervals[actionId];
+            }
+            
+            const button = document.getElementById(actionId);
+            if (button) {
+                button.classList.remove('active');
+            }
+        }
+
+        // 发送功能命令
+        function sendActionCommand(actionId) {
+            const command = {
+                action: actionId,
+                timestamp: Date.now()
+            };
+            
+            sendWebSocketMessage('CMD_CONTROL_ROBOT', command);
+        }
+
+        // 统一的WebSocket消息发送
+        function sendWebSocketMessage(command, data) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            const message = {
+                type: 'Request',
+                command: command,
+                sequence: Date.now(),
+                ucode: currentUCode,
+                client_type: 'operator',
+                version: '1.0.0',
+                data: data
+            };
+            
+            try {
+                ws.send(JSON.stringify(message));
+            } catch (error) {
+                console.error('发送消息失败:', error);
+                handleConnectionError();
+            }
+        }
+
+        // 打开设置对话框
+        function openSettings() {
+            document.getElementById('settingsModal').style.display = 'block';
+            hideError();
+        }
+
+        // 关闭设置对话框
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+            hideError();
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        // 隐藏错误信息
+        function hideError() {
+            document.getElementById('errorMessage').style.display = 'none';
+        }
+
+        // 验证输入
+        function validateInputs() {
+            const robotUCode = document.getElementById('robotUCode').value.trim();
+            const operatorId = document.getElementById('operatorId').value.trim();
+            const serverUrl = document.getElementById('serverUrl').value.trim();
+            
+            if (!robotUCode) {
+                showError('请输入机器人UCode');
+                return false;
+            }
+            
+            if (!operatorId) {
+                showError('请输入操作者ID');
+                return false;
+            }
+            
+            if (!/^[a-zA-Z0-9_]+$/.test(robotUCode) || !/^[a-zA-Z0-9_]+$/.test(operatorId)) {
+                showError('UCode和操作者ID只能包含字母、数字和下划线');
+                return false;
+            }
+            
+            if (serverUrl && !/^[a-zA-Z0-9.-]+(:\d+)?$/.test(serverUrl)) {
+                showError('服务器地址格式不正确');
+                return false;
+            }
+            
+            return true;
+        }
+
+        // 保存设置并连接
+        function saveSettings() {
+            if (!validateInputs()) return;
+            
+            const settings = {
+                robotUCode: document.getElementById('robotUCode').value.trim(),
+                operatorId: document.getElementById('operatorId').value.trim(),
+                serverUrl: document.getElementById('serverUrl').value.trim(),
+                srtUrl: document.getElementById('srtUrl').value.trim()
+            };
+            
+            // 保存到本地存储
+            Storage.save('robotControlSettings', settings);
+            
+            // 设置视频流
+            if (settings.srtUrl) {
+                setVideoStream(settings.srtUrl);
+            }
+            
+            closeSettings();
+            connectAndRegister(settings.robotUCode, settings.operatorId, settings.serverUrl);
+        }
+
+        // 加载设置
+        function loadSettings() {
+            const settings = Storage.load('robotControlSettings', {});
+            
+            if (settings.robotUCode) {
+                document.getElementById('robotUCode').value = settings.robotUCode;
+            }
+            if (settings.operatorId) {
+                document.getElementById('operatorId').value = settings.operatorId;
+            }
+            if (settings.serverUrl) {
+                document.getElementById('serverUrl').value = settings.serverUrl;
+            }
+            if (settings.srtUrl) {
+                document.getElementById('srtUrl').value = settings.srtUrl;
+            }
+        }
+
+        // 连接并注册
+        function connectAndRegister(robotUCode, operatorId, customServerUrl) {
+            let serverUrl, wsUrl;
+            
+            if (customServerUrl && customServerUrl.trim()) {
+                const server = customServerUrl.trim();
+                const protocol = window.location.protocol;
+                const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+                
+                if (!server.startsWith('http://') && !server.startsWith('https://')) {
+                    serverUrl = `${protocol}//${server}`;
+                    wsUrl = `${wsProtocol}//${server}/ws/control`;
+                } else {
+                    serverUrl = server;
+                    wsUrl = server.replace(/^http/, 'ws') + '/ws/control';
+                }
+            } else {
+                const protocol = window.location.protocol;
+                const host = window.location.hostname;
+                const port = window.location.port || CONFIG.DEFAULT_SERVER_PORT;
+                
+                serverUrl = `${protocol}//${host}:${port}`;
+                const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+                wsUrl = `${wsProtocol}//${host}:${port}/ws/control`;
+            }
+            
+            console.log('尝试连接WebSocket:', wsUrl);
+            updateConnectionStatus('正在连接...', false, true);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                const connectionTimeout = setTimeout(() => {
+                    if (ws.readyState === WebSocket.CONNECTING) {
+                        console.error('WebSocket连接超时');
+                        updateConnectionStatus('连接超时', false);
+                        ws.close();
+                    }
+                }, CONFIG.CONNECTION_TIMEOUT);
+                
+                ws.onopen = function() {
+                    clearTimeout(connectionTimeout);
+                    isConnected = true;
+                    reconnectAttempts = 0;
+                    updateConnectionStatus('已连接', true);
+                    console.log('WebSocket连接成功');
+                    
+                    // 注册操作者
+                    const registerMessage = {
+                        type: 'Request',
+                        command: 'CMD_REGISTER',
+                        sequence: Date.now(),
+                        ucode: operatorId,
+                        client_type: 'operator',
+                        version: '1.0.0',
+                        data: {
+                            name: '移动端操作者',
+                            operator_id: operatorId
+                        }
+                    };
+                    ws.send(JSON.stringify(registerMessage));
+                    
+                    // 绑定机器人
+                    setTimeout(() => {
+                        const bindMessage = {
+                            type: 'Request',
+                            command: 'CMD_BIND_ROBOT',
+                            sequence: Date.now(),
+                            ucode: operatorId,
+                            client_type: 'operator',
+                            version: '1.0.0',
+                            data: {
+                                ucode: robotUCode
+                            }
+                        };
+                        ws.send(JSON.stringify(bindMessage));
+                    }, 1000);
+                    
+                    currentUCode = operatorId;
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        handleMessage(message);
+                    } catch (error) {
+                        console.error('解析消息失败:', error);
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    clearTimeout(connectionTimeout);
+                    isConnected = false;
+                    isRegistered = false;
+                    console.log('WebSocket连接关闭:', event.code, event.reason);
+                    
+                    if (event.code === 1000) {
+                        updateConnectionStatus('连接已关闭', false);
+                    } else {
+                        updateConnectionStatus('连接异常断开', false);
+                        handleReconnection(robotUCode, operatorId, customServerUrl);
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    clearTimeout(connectionTimeout);
+                    console.error('WebSocket错误:', error);
+                    updateConnectionStatus('连接错误', false);
+                };
+                
+            } catch (error) {
+                console.error('连接失败:', error);
+                updateConnectionStatus('连接失败', false);
+            }
+        }
+
+        // 处理重连
+        function handleReconnection(robotUCode, operatorId, customServerUrl) {
+            if (reconnectAttempts < CONFIG.MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                console.log(`尝试重新连接 (${reconnectAttempts}/${CONFIG.MAX_RECONNECT_ATTEMPTS})...`);
+                
+                setTimeout(() => {
+                    if (!isConnected) {
+                        connectAndRegister(robotUCode, operatorId, customServerUrl);
+                    }
+                }, CONFIG.RECONNECT_DELAY * reconnectAttempts);
+            } else {
+                console.log('达到最大重连次数，停止重连');
+                updateConnectionStatus('重连失败', false);
+            }
+        }
+
+        // 处理连接错误
+        function handleConnectionError() {
+            if (isConnected) {
+                isConnected = false;
+                isRegistered = false;
+                updateConnectionStatus('连接异常', false);
+            }
+        }
+
+        // 处理接收到的消息
+        function handleMessage(message) {
+            if (message.type === 'Response') {
+                if (message.command === 'CMD_BIND_ROBOT' && message.data && message.data.success) {
+                    isRegistered = true;
+                    updateConnectionStatus('已连接并绑定', true);
+                    console.log('机器人绑定成功');
+                } else if (message.command === 'CMD_REGISTER' && message.data && message.data.success) {
+                    updateConnectionStatus('已连接并注册', true);
+                    console.log('操作者注册成功');
+                } else if (message.command === 'CMD_CONTROL_ROBOT' && message.data && message.data.success) {
+                    console.log('控制响应: ' + JSON.stringify(message.data));
+                } else if (message.data && !message.data.success) {
+                    console.error('操作失败:', message.data.message);
+                    updateConnectionStatus('操作失败', false);
+                }
+            }
+        }
+
+        // 更新连接状态
+        function updateConnectionStatus(status, connected, connecting = false) {
+            const statusElement = document.getElementById('connectionStatus');
+            const detailsElement = document.getElementById('connectionDetails');
+            
+            statusElement.textContent = status;
+            
+            if (connecting) {
+                statusElement.className = 'connection-status connecting';
+                detailsElement.textContent = '正在建立连接...';
+            } else if (connected) {
+                statusElement.className = 'connection-status connected';
+                detailsElement.textContent = `延迟: ${connectionStats.latency}ms`;
+            } else {
+                statusElement.className = 'connection-status';
+                detailsElement.textContent = '点击设置连接';
+            }
+        }
+
+        // 设置视频流地址
+        function setVideoStream(streamUrl) {
+            const video = document.getElementById('backgroundVideo');
+            if (video && streamUrl) {
+                if (streamUrl.startsWith('http://') || streamUrl.startsWith('https://')) {
+                    video.src = streamUrl;
+                    video.style.display = 'block';
+                    console.log('设置视频流地址:', streamUrl);
+                } else {
+                    console.log('不支持的流媒体协议:', streamUrl);
+                }
+            }
+        }
+
+        // 页面卸载时清理资源
+        window.onbeforeunload = function() {
+            Object.keys(actionIntervals).forEach(actionId => {
+                stopAction(actionId);
+            });
+            
+            stopJoystickMove();
+            
+            if (ws) {
+                ws.close();
+            }
+        };
+
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('settingsModal');
+            if (event.target === modal) {
+                closeSettings();
+            }
+        };
+    </script>
+</body>
+</html> 

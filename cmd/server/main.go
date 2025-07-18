@@ -42,11 +42,11 @@ func main() {
 	gameService := services.NewGameService()
 
 	// 创建客户端管理器
-	clientManager := services.NewClientManager(robotManager, gameService)
+	operatorManager := services.NewOperatorManager(robotManager, gameService)
 
 	// 创建处理器
-	wsHandlers := handlers.NewWebSocketHandlers(robotManager, clientManager, gameService)
-	apiHandlers := handlers.NewAPIHandlers(janusService, robotManager, clientManager, wsHandlers)
+	wsHandlers := handlers.NewWebSocketHandlers(robotManager, operatorManager, gameService)
+	apiHandlers := handlers.NewAPIHandlers(janusService, robotManager, operatorManager, wsHandlers)
 
 	// 创建HTTP服务器
 	mux := http.NewServeMux()
@@ -102,7 +102,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				clientManager.CleanupDisconnectedClients()
+				operatorManager.CleanupDisconnectedClients()
 				// 清理无效的WebRTC流
 				cleaned := janusService.CleanupInactiveStreams()
 				if cleaned > 0 {

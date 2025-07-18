@@ -3,13 +3,11 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
 	"remote-ctrl-robot/internal/models"
 	"remote-ctrl-robot/internal/services"
-	"remote-ctrl-robot/internal/utils"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -19,13 +17,13 @@ type WebSocketHandlers struct {
 	upgrader websocket.Upgrader
 
 	// 连接管理
-	ctx           context.Context
-	cancel        context.CancelFunc
-	clientManager *services.ClientManager
-	robotManager  *services.RobotManager
+	ctx             context.Context
+	cancel          context.CancelFunc
+	operatorManager *services.OperatorManager
+	robotManager    *services.RobotManager
 }
 
-func NewWebSocketHandlers(robotManager *services.RobotManager, clientManager *services.ClientManager, gameService *services.GameService) *WebSocketHandlers {
+func NewWebSocketHandlers(robotManager *services.RobotManager, operatorManager *services.OperatorManager, gameService *services.GameService) *WebSocketHandlers {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WebSocketHandlers{
 		upgrader: websocket.Upgrader{
@@ -33,19 +31,19 @@ func NewWebSocketHandlers(robotManager *services.RobotManager, clientManager *se
 				return true
 			},
 		},
-		ctx:           ctx,
-		cancel:        cancel,
-		clientManager: clientManager,
-		robotManager:  robotManager,
+		ctx:             ctx,
+		cancel:          cancel,
+		operatorManager: operatorManager,
+		robotManager:    robotManager,
 	}
 }
 
-func (h *WebSocketHandlers) GetClientByUcode(ucode string) *models.Client {
-	client, err := h.clientManager.GetClient(ucode)
+func (h *WebSocketHandlers) GetOperatorByUcode(ucode string) *services.Operator {
+	operator, err := h.operatorManager.GetOperator(ucode)
 	if err != nil {
 		return nil
 	}
-	return client
+	return operator
 }
 
 func (h *WebSocketHandlers) checkWSMessage(msg models.WebSocketMessage) error {
@@ -81,13 +79,14 @@ func (h *WebSocketHandlers) checkWSMessage(msg models.WebSocketMessage) error {
 
 // 处理WebSocket连接
 func (h *WebSocketHandlers) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	log.Info().Msg("WebSocket connection received")
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to upgrade connection to WebSocket")
 		return
 	}
+
+	log.Info().Msg("WebSocket connection received conn: " + conn.RemoteAddr().String())
 
 	// 设置连接参数
 	conn.SetReadLimit(512 * 1024)                          // 512KB 读取限制
@@ -97,83 +96,68 @@ func (h *WebSocketHandlers) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 		return nil
 	})
 
+	// 创建WebSocket服务
+	wsService := services.NewWebSocketService(conn)
+
 	// 注册：第一条消息必须为register
 	var msg models.WebSocketMessage
 	if err := conn.ReadJSON(&msg); err != nil {
-		utils.SendError(conn, &msg, "Failed to parse registration message")
+		wsService.SendError(&msg, "Failed to parse registration message")
 		conn.Close()
 		return
 	}
 	if msg.Command != models.CMD_TYPE_REGISTER {
-		utils.SendError(conn, &msg, "Invalid message type")
+		wsService.SendError(&msg, "Invalid message type")
 		conn.Close()
 		return
 	}
 
 	err = h.checkWSMessage(msg)
 	if err != nil {
-		utils.SendError(conn, &msg, err.Error())
+		wsService.SendError(&msg, err.Error())
 		conn.Close()
 		return
 	}
 
-	h.handleRegistration(conn, &msg)
+	h.handleRegistration(wsService, &msg)
 }
 
 // 注册 - 返回是否成功
-func (h *WebSocketHandlers) handleRegistration(conn *websocket.Conn, msg *models.WebSocketMessage) bool {
-	// 创建Client连接信息
-	client := &models.Client{
-		UCode:      msg.UCode,
-		ClientType: msg.ClientType,
-		Version:    msg.Version,
-		Connected:  true,
-		LastSeen:   time.Now(),
-		RemoteAddr: conn.RemoteAddr().String(),
-	}
+func (h *WebSocketHandlers) handleRegistration(wsService *services.WebSocketService, msg *models.WebSocketMessage) bool {
 
 	// 如果是机器人客户端，注册到机器人管理器
 	if msg.ClientType == models.ClientTypeRobot {
-		registration := &models.RobotRegistration{
-			UCode:        msg.UCode,
-			Name:         fmt.Sprintf("Robot_%s", msg.UCode),
-			Type:         models.RobotTypeB2, // 默认类型，可以从消息中获取
-			Version:      msg.Version,
-			IPAddress:    conn.RemoteAddr().String(),
-			Port:         8080,
-			Capabilities: []string{"move", "stop", "reset"},
-		}
-
-		robot, err := h.robotManager.RegisterRobot(registration)
+		// 创建新机器人
+		_, err := h.robotManager.RegisterRobot(msg.UCode, wsService)
 		if err != nil {
+			wsService.SendError(msg, err.Error())
 			log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to register robot")
-			utils.SendError(conn, msg, "Failed to register robot")
 			return false
 		}
 
-		// 设置机器人连接
-		if robot != nil && robot.GetService() != nil {
-			robot.GetService().SetConnection(conn)
-		}
+		wsService.SendSuccess(msg, "RegisterRobot successful")
+		// 设置机器人消息处理器回调
+		wsService.SetMessageHandler(h.createRobotMessageHandler())
 	}
 
 	// 如果是操作员客户端，添加到客户端管理器
 	if msg.ClientType == models.ClientTypeOperator {
-		if err := h.clientManager.AddClient(client, conn); err != nil {
+		if err := h.operatorManager.RegisterOperator(msg.UCode, wsService); err != nil {
+			wsService.SendError(msg, err.Error())
 			log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to add client")
-			utils.SendError(conn, msg, "Failed to add client")
 			return false
-		} else {
-
-			// 发送欢迎消息
-			if err := utils.SendSuccess(conn, msg, "连接成功"); err != nil {
-				log.Error().
-					Err(err).
-					Str("ucode", client.UCode).
-					Msg("Failed to send welcome message")
-			}
-			return true
 		}
+
+		wsService.SendSuccess(msg, "RegisterOperator successful")
+		// 设置客户端消息处理器回调
+		wsService.SetMessageHandler(h.createClientMessageHandler())
+	}
+
+	// 启动WebSocket服务
+	if err := wsService.Start(); err != nil {
+		log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to start WebSocket service")
+		wsService.SendError(msg, "Failed to start WebSocket service")
+		return false
 	}
 
 	log.Info().
@@ -182,6 +166,19 @@ func (h *WebSocketHandlers) handleRegistration(conn *websocket.Conn, msg *models
 		Str("version", msg.Version).
 		Msg("Client registered successfully")
 
-	utils.SendSuccess(conn, msg, "Registration successful")
 	return true
+}
+
+// createRobotMessageHandler 创建机器人消息处理器回调
+func (h *WebSocketHandlers) createRobotMessageHandler() services.MessageHandler {
+	return func(service *services.WebSocketService, message *models.WebSocketMessage) error {
+		return h.robotManager.HandleMessage(message)
+	}
+}
+
+// createClientMessageHandler 创建客户端消息处理器回调
+func (h *WebSocketHandlers) createClientMessageHandler() services.MessageHandler {
+	return func(service *services.WebSocketService, message *models.WebSocketMessage) error {
+		return h.operatorManager.HandleMessage(message)
+	}
 }

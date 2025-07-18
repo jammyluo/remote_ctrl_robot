@@ -53,7 +53,6 @@ type RobotManager struct {
 - `GetRobotStatistics()` - 获取机器人统计
 - `GetRobotConfig()` - 获取机器人配置
 - `SetRobotConfig()` - 设置机器人配置
-- `getDefaultConfig()` - 获取默认配置
 
 ### 3. 依赖关系调整
 ```go

@@ -11,10 +11,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// RobotManager 机器人管理器 - 合并了注册表功能
+// 机器人实体
+type Robot struct {
+	UCode     string            // 唯一标识
+	Version   string            // 版本
+	wsService *WebSocketService // 机器人连接
+	CreatedAt time.Time         // 创建时间
+	UpdatedAt time.Time         // 更新时间
+	mutex     sync.RWMutex      // 状态锁
+}
+
+func (r *Robot) IsOnline() bool {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	return r.wsService.IsConnected()
+}
+
+// RobotManager 机器人管理器 - 合并了注册表功能和连接管理
 type RobotManager struct {
-	robots        map[string]*models.Robot // 机器人映射表
-	services      map[string]*RobotService // 机器人服务映射
+	robots        map[string]*Robot // 机器人映射表
 	mutex         sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -27,8 +42,7 @@ func NewRobotManager() *RobotManager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &RobotManager{
-		robots:        make(map[string]*models.Robot),
-		services:      make(map[string]*RobotService),
+		robots:        make(map[string]*Robot),
 		ctx:           ctx,
 		cancel:        cancel,
 		eventHandlers: make(map[models.RobotEventType][]func(*models.RobotEvent)),
@@ -54,135 +68,128 @@ func (s *RobotManager) Stop() error {
 
 	s.cancel()
 
-	// 停止所有机器人服务
+	// 关闭所有机器人连接
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	for ucode, service := range s.services {
-		if err := service.Stop(); err != nil {
-			log.Error().
-				Err(err).
-				Str("ucode", ucode).
-				Msg("Failed to stop robot service")
-		}
+	for ucode := range s.robots {
+		s.RemoveRobotConnection(ucode)
 	}
 
 	return nil
 }
 
+// HandleMessage 处理机器人消息
+func (s *RobotManager) HandleMessage(message *models.WebSocketMessage) error {
+	robot, exists := s.robots[message.UCode]
+	// 更新机器人状态
+	if !exists {
+		return fmt.Errorf("robot %s not found in registry", message.UCode)
+	}
+
+	robot.wsService.LastSeen = time.Now()
+
+	log.Debug().
+		Str("ucode", message.UCode).
+		Int64("sequence", message.Sequence).
+		Str("remote_addr", robot.wsService.RemoteAddr).
+		Str("command", string(message.Command)).
+		Msg("Received robot message")
+
+	// 机器人端消息处理（状态上报、心跳等）
+	switch message.Command {
+	case models.CMD_TYPE_UPDATE_ROBOT_STATUS:
+		return s.HandleStatusUpdate(robot, message)
+	case models.CMD_TYPE_PING:
+		return s.HandlePing(robot, message)
+	default:
+		log.Debug().
+			Str("ucode", message.UCode).
+			Str("command", string(message.Command)).
+			Msg("Unknown robot message command")
+	}
+	return nil
+}
+
+// SetRobotConnection 设置机器人连接
+func (s *RobotManager) SetRobotConnection(ucode string, wsService *WebSocketService) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.robots[ucode].wsService = wsService
+}
+
+// RemoveRobotConnection 移除机器人连接
+func (s *RobotManager) RemoveRobotConnection(ucode string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if robot, exists := s.robots[ucode]; exists {
+		robot.wsService.Stop()
+		delete(s.robots, ucode)
+	}
+
+	// 更新机器人状态
+	if robot, exists := s.robots[ucode]; exists {
+		robot.wsService.Stop()
+
+		log.Info().
+			Str("ucode", ucode).
+			Msg("Robot disconnected")
+
+		s.emitEvent(models.RobotEventDisconnected, ucode, "连接断开")
+	}
+}
+
+// HandleStatusUpdate 处理机器人状态更新
+func (s *RobotManager) HandleStatusUpdate(robot *Robot, message *models.WebSocketMessage) error {
+	s.emitEvent(models.RobotEventStatusUpdate, robot.UCode, "机器人状态更新")
+
+	return robot.wsService.SendSuccess(message, "status updated")
+
+}
+
+// HandlePing 处理机器人心跳响应
+func (s *RobotManager) HandlePing(robot *Robot, message *models.WebSocketMessage) error {
+	s.emitEvent(models.RobotEventHeartbeat, robot.UCode, "机器人心跳")
+	// 发送pong响应
+	return robot.wsService.SendSuccess(message, "pong")
+}
+
 // RegisterRobot 注册机器人
-func (s *RobotManager) RegisterRobot(registration *models.RobotRegistration) (*models.Robot, error) {
+func (s *RobotManager) RegisterRobot(ucode string, wsService *WebSocketService) (*Robot, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	// 检查机器人是否已存在
-	if existing, exists := s.robots[registration.UCode]; exists {
+	if robot, exists := s.robots[ucode]; exists {
 		// 更新现有机器人信息
-		existing.Name = registration.Name
-		existing.Type = registration.Type
-		existing.LastSeen = time.Now()
-		existing.UpdatedAt = time.Now()
+		robot.wsService = wsService
 
 		log.Info().
-			Str("ucode", registration.UCode).
-			Str("name", registration.Name).
-			Msg("Robot updated in registry")
+			Str("ucode", robot.UCode).
+			Msg("Robot reconnected")
 
-		// 如果服务不存在，创建新服务
-		if _, serviceExists := s.services[registration.UCode]; !serviceExists {
-			service := NewRobotService(existing, s)
-			existing.SetService(service)
-			s.setupRobotService(service, existing)
-			s.services[registration.UCode] = service
-		}
-
-		return existing, nil
+		return robot, nil
 	}
 
 	// 创建新机器人
-	robot := &models.Robot{
-		UCode:     registration.UCode,
-		Name:      registration.Name,
-		Type:      registration.Type,
-		Config:    s.getDefaultConfig(registration.Type),
-		Status:    &models.RobotStatus{},
-		LastSeen:  time.Now(),
+	s.robots[ucode] = &Robot{
+		UCode:     ucode,
+		wsService: wsService,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
-	s.robots[registration.UCode] = robot
-
-	// 创建机器人服务
-	service := NewRobotService(robot, s)
-	robot.SetService(service)
-
-	// 设置服务事件处理器
-	s.setupRobotService(service, robot)
-
-	// 启动服务
-	if err := service.Start(); err != nil {
-		log.Error().
-			Err(err).
-			Str("ucode", robot.UCode).
-			Msg("Failed to start robot service")
-		return nil, err
-	}
-
-	// 保存服务实例
-	s.services[robot.UCode] = service
-
-	log.Info().
-		Str("ucode", robot.UCode).
-		Str("name", robot.Name).
-		Str("type", string(registration.Type)).
-		Msg("Robot registered and service started")
-
-	return robot, nil
-}
-
-// setupRobotService 设置机器人服务的事件处理器
-func (s *RobotManager) setupRobotService(service *RobotService, robot *models.Robot) {
-	service.AddEventHandler(models.RobotEventConnected, s.handleRobotEvent)
-	service.AddEventHandler(models.RobotEventDisconnected, s.handleRobotEvent)
-	service.AddEventHandler(models.RobotEventError, s.handleRobotEvent)
-	service.AddEventHandler(models.RobotEventStatusUpdate, s.handleRobotEvent)
-	service.AddEventHandler(models.RobotEventCommand, s.handleRobotEvent)
-	service.AddEventHandler(models.RobotEventHeartbeat, s.handleRobotEvent)
-}
-
-// UnregisterRobot 注销机器人
-func (s *RobotManager) UnregisterRobot(ucode string) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	// 停止服务
-	if service, exists := s.services[ucode]; exists {
-		if err := service.Stop(); err != nil {
-			log.Error().
-				Err(err).
-				Str("ucode", ucode).
-				Msg("Failed to stop robot service")
-		}
-		delete(s.services, ucode)
-	}
-
-	// 从注册表删除
-	if _, exists := s.robots[ucode]; !exists {
-		return fmt.Errorf("robot %s not found in registry", ucode)
-	}
-
-	delete(s.robots, ucode)
-
 	log.Info().
 		Str("ucode", ucode).
-		Msg("Robot unregistered and service stopped")
+		Msg("Robot registered")
 
-	return nil
+	return s.robots[ucode], nil
 }
 
 // GetRobot 获取机器人
-func (s *RobotManager) GetRobot(ucode string) (*models.Robot, error) {
+func (s *RobotManager) GetRobot(ucode string) (*Robot, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -195,11 +202,11 @@ func (s *RobotManager) GetRobot(ucode string) (*models.Robot, error) {
 }
 
 // GetAllRobots 获取所有机器人
-func (s *RobotManager) GetAllRobots() []*models.Robot {
+func (s *RobotManager) GetAllRobots() []*Robot {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	robots := make([]*models.Robot, 0, len(s.robots))
+	robots := make([]*Robot, 0, len(s.robots))
 	for _, robot := range s.robots {
 		robots = append(robots, robot)
 	}
@@ -208,13 +215,13 @@ func (s *RobotManager) GetAllRobots() []*models.Robot {
 }
 
 // GetOnlineRobots 获取在线机器人
-func (s *RobotManager) GetOnlineRobots() []*models.Robot {
+func (s *RobotManager) GetOnlineRobots() []*Robot {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	var onlineRobots []*models.Robot
+	var onlineRobots []*Robot
 	for _, robot := range s.robots {
-		if robot.IsOnline() {
+		if robot.wsService.IsConnected() {
 			onlineRobots = append(onlineRobots, robot)
 		}
 	}
@@ -223,13 +230,13 @@ func (s *RobotManager) GetOnlineRobots() []*models.Robot {
 }
 
 // GetHealthyRobots 获取健康机器人
-func (s *RobotManager) GetHealthyRobots() []*models.Robot {
+func (s *RobotManager) GetHealthyRobots() []*Robot {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	var healthyRobots []*models.Robot
+	var healthyRobots []*Robot
 	for _, robot := range s.robots {
-		if robot.IsHealthy() {
+		if robot.wsService.IsConnected() {
 			healthyRobots = append(healthyRobots, robot)
 		}
 	}
@@ -238,108 +245,42 @@ func (s *RobotManager) GetHealthyRobots() []*models.Robot {
 }
 
 // SendCommand 发送命令到机器人
-func (s *RobotManager) SendCommand(ucode string, command *models.RobotCommand) (*models.RobotCommandResponse, error) {
-	s.mutex.RLock()
-	service, exists := s.services[ucode]
-	s.mutex.RUnlock()
-
-	if !exists {
-		return &models.RobotCommandResponse{
-			Success:   false,
-			Message:   "机器人服务不存在",
-			Timestamp: time.Now().Unix(),
-		}, fmt.Errorf("robot service not found: %s", ucode)
-	}
-
-	return service.SendCommand(command)
-}
-
-// GetRobotService 获取机器人服务
-func (s *RobotManager) GetRobotService(ucode string) (*RobotService, error) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	service, exists := s.services[ucode]
-	if !exists {
-		return nil, fmt.Errorf("robot service not found: %s", ucode)
-	}
-
-	return service, nil
-}
-
-// GetRobotStatus 获取机器人状态
-func (s *RobotManager) GetRobotStatus(ucode string) (*models.RobotStatus, error) {
+func (s *RobotManager) SendCommand(ucode string, command *models.RobotCommand) error {
+	// 获取机器人连接
 	robot, err := s.GetRobot(ucode)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("robot not connected: %w", err)
 	}
 
-	return robot.GetStatus(), nil
-}
-
-// GetRobotStatistics 获取机器人统计信息
-func (s *RobotManager) GetRobotStatistics() map[string]*models.RobotStatistics {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	statistics := make(map[string]*models.RobotStatistics)
-
-	for ucode, robot := range s.robots {
-		status := robot.GetStatus()
-		if status == nil {
-			continue
-		}
-
-		successRate := 0.0
-		if status.TotalCommands > 0 {
-			successRate = float64(status.TotalCommands-status.FailedCommands) / float64(status.TotalCommands) * 100
-		}
-
-		uptime := int64(0)
-		if !robot.CreatedAt.IsZero() {
-			uptime = int64(time.Since(robot.CreatedAt).Seconds())
-		}
-
-		statistics[ucode] = &models.RobotStatistics{
-			UCode:          ucode,
-			TotalCommands:  status.TotalCommands,
-			FailedCommands: status.FailedCommands,
-			SuccessRate:    successRate,
-			AverageLatency: float64(status.Latency),
-			Uptime:         uptime,
-			LastSeen:       robot.LastSeen,
-			ErrorCount:     0, // TODO: 实现错误计数
-			ReconnectCount: 0, // TODO: 实现重连计数
-		}
+	// 创建WebSocket消息
+	message := models.WebSocketMessage{
+		Type:       models.WSMessageTypeRequest,
+		Command:    models.CMD_TYPE_CONTROL_ROBOT,
+		Sequence:   time.Now().UnixNano(),
+		UCode:      ucode,
+		ClientType: models.ClientTypeOperator,
+		Version:    "1.0",
+		Data: models.CMD_CONTROL_ROBOT{
+			Action:    command.Action,
+			ParamMaps: command.Params,
+			Timestamp: command.Timestamp,
+		},
 	}
 
-	return statistics
-}
-
-// GetSystemStatus 获取系统状态
-func (s *RobotManager) GetSystemStatus() *models.SystemStatus {
-	onlineCount := s.GetOnlineRobotCount()
-	healthyCount := s.GetHealthyRobotCount()
-	totalCount := s.GetRobotCount()
-
-	status := "unknown"
-	if totalCount == 0 {
-		status = "no_robots"
-	} else if healthyCount == totalCount {
-		status = "healthy"
-	} else if onlineCount > 0 {
-		status = "partial"
-	} else {
-		status = "offline"
+	// 发送命令
+	if err := robot.wsService.SendMessage(message); err != nil {
+		return fmt.Errorf("failed to send command: %w", err)
 	}
 
-	return &models.SystemStatus{
-		ServerTime:    time.Now(),
-		Uptime:        int64(time.Since(time.Now()).Seconds()), // TODO: 实现真正的启动时间
-		ActiveClients: onlineCount,
-		RobotStatus:   status,
-		JanusStatus:   "unknown", // TODO: 集成Janus状态
-	}
+	s.emitEvent(models.RobotEventCommand, ucode, fmt.Sprintf("命令执行: %s", command.Action))
+
+	log.Info().
+		Str("ucode", ucode).
+		Str("action", command.Action).
+		Int("priority", command.Priority).
+		Msg("Command sent to robot successfully")
+
+	return nil
 }
 
 // AddEventHandler 添加事件处理器
@@ -361,6 +302,24 @@ func (s *RobotManager) RemoveEventHandler(eventType models.RobotEventType, handl
 			s.eventHandlers[eventType] = append(handlers[:i], handlers[i+1:]...)
 			break
 		}
+	}
+}
+
+// emitEvent 发送事件
+func (s *RobotManager) emitEvent(eventType models.RobotEventType, ucode string, message string) {
+	event := &models.RobotEvent{
+		Type:      eventType,
+		UCode:     ucode,
+		Timestamp: time.Now(),
+		Message:   message,
+	}
+
+	s.handlerMutex.RLock()
+	handlers := s.eventHandlers[eventType]
+	s.handlerMutex.RUnlock()
+
+	for _, handler := range handlers {
+		go handler(event)
 	}
 }
 
@@ -417,20 +376,13 @@ func (s *RobotManager) performHealthCheck() {
 	robots := s.GetAllRobots()
 
 	for _, robot := range robots {
-		status := robot.GetStatus()
-		if status == nil {
-			continue
-		}
-
-		// 检查连接状态
-		if status.Connected && time.Since(status.LastHeartbeat) > 30*time.Second {
+		if !robot.wsService.IsConnected() {
 			log.Warn().
 				Str("ucode", robot.UCode).
 				Msg("Robot heartbeat timeout detected")
 
 			// 标记为离线，等待机器人重新连接
-			status.Connected = false
-			robot.UpdateStatus(status)
+			robot.wsService.Stop()
 		}
 	}
 }
@@ -444,16 +396,16 @@ func (s *RobotManager) CleanupOfflineRobots(timeout time.Duration) {
 	var toDelete []string
 
 	for ucode, robot := range s.robots {
-		if now.Sub(robot.LastSeen) > timeout {
+		if now.Sub(robot.wsService.LastSeen) > timeout {
 			toDelete = append(toDelete, ucode)
 		}
 	}
 
 	for _, ucode := range toDelete {
 		// 停止服务
-		if service, exists := s.services[ucode]; exists {
-			service.Stop()
-			delete(s.services, ucode)
+		if robot, exists := s.robots[ucode]; exists {
+			robot.wsService.Stop()
+			delete(s.robots, ucode)
 		}
 		delete(s.robots, ucode)
 		log.Info().
@@ -462,128 +414,9 @@ func (s *RobotManager) CleanupOfflineRobots(timeout time.Duration) {
 	}
 }
 
-// GetRobotConfig 获取机器人配置
-func (s *RobotManager) GetRobotConfig(ucode string) (*models.RobotConfig, error) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	robot, exists := s.robots[ucode]
-	if !exists {
-		return nil, fmt.Errorf("robot %s not found in registry", ucode)
-	}
-
-	return &robot.Config, nil
-}
-
-// SetRobotConfig 设置机器人配置
-func (s *RobotManager) SetRobotConfig(ucode string, config models.RobotConfig) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	robot, exists := s.robots[ucode]
-	if !exists {
-		return fmt.Errorf("robot %s not found in registry", ucode)
-	}
-
-	robot.Config = config
-	robot.UpdatedAt = time.Now()
-
-	log.Info().
-		Str("ucode", ucode).
-		Str("websocket_url", config.WebSocketURL).
-		Msg("Robot config updated")
-
-	// 重启机器人服务以应用新配置
-	if service, exists := s.services[ucode]; exists {
-		// 停止当前服务
-		if err := service.Stop(); err != nil {
-			log.Error().
-				Err(err).
-				Str("ucode", ucode).
-				Msg("Failed to stop robot service for config update")
-		}
-
-		// 创建新服务
-		newService := NewRobotService(robot, s)
-		s.setupRobotService(newService, robot)
-
-		// 启动新服务
-		if err := newService.Start(); err != nil {
-			log.Error().
-				Err(err).
-				Str("ucode", ucode).
-				Msg("Failed to start robot service with new config")
-			return err
-		}
-
-		// 更新服务映射
-		s.services[ucode] = newService
-
-		log.Info().
-			Str("ucode", ucode).
-			Msg("Robot service restarted with new config")
-	}
-
-	return nil
-}
-
-// getDefaultConfig 获取默认配置
-func (s *RobotManager) getDefaultConfig(robotType models.RobotType) models.RobotConfig {
-	config := models.RobotConfig{
-		Timeout:           30,
-		MaxRetries:        3,
-		HeartbeatInterval: 10,
-		ReconnectInterval: 5,
-	}
-
-	// 根据机器人类型设置不同的默认配置
-	switch robotType {
-	case models.RobotTypeB2, models.RobotTypeB2W:
-		config.WebSocketURL = "ws://192.168.1.100:8080"
-	case models.RobotTypeGo2, models.RobotTypeGo2W:
-		config.WebSocketURL = "ws://192.168.1.101:8080"
-	case models.RobotTypeG1:
-		config.WebSocketURL = "ws://192.168.1.102:8080"
-	case models.RobotTypeH1, models.RobotTypeH1_2:
-		config.WebSocketURL = "ws://192.168.1.103:8080"
-	default:
-		config.WebSocketURL = "ws://192.168.1.100:8080"
-	}
-
-	return config
-}
-
 // GetRobotCount 获取机器人数量
 func (s *RobotManager) GetRobotCount() int {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	return len(s.robots)
-}
-
-// GetOnlineRobotCount 获取在线机器人数量
-func (s *RobotManager) GetOnlineRobotCount() int {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	count := 0
-	for _, robot := range s.robots {
-		if robot.IsOnline() {
-			count++
-		}
-	}
-	return count
-}
-
-// GetHealthyRobotCount 获取健康机器人数量
-func (s *RobotManager) GetHealthyRobotCount() int {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	count := 0
-	for _, robot := range s.robots {
-		if robot.IsHealthy() {
-			count++
-		}
-	}
-	return count
 }

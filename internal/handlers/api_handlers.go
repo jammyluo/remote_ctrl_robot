@@ -15,12 +15,12 @@ import (
 type APIHandlers struct {
 	janusService  *services.JanusService
 	robotManager  *services.RobotManager
-	clientManager *services.ClientManager
+	clientManager *services.OperatorManager
 	wsHandlers    *WebSocketHandlers
 	startTime     time.Time
 }
 
-func NewAPIHandlers(janusService *services.JanusService, robotManager *services.RobotManager, clientManager *services.ClientManager, wsHandlers *WebSocketHandlers) *APIHandlers {
+func NewAPIHandlers(janusService *services.JanusService, robotManager *services.RobotManager, clientManager *services.OperatorManager, wsHandlers *WebSocketHandlers) *APIHandlers {
 	return &APIHandlers{
 		janusService:  janusService,
 		robotManager:  robotManager,
@@ -344,7 +344,7 @@ func (h *APIHandlers) sendCommandToRobot(ucode string, command models.CMD_CONTRO
 	}
 
 	// 发送命令到机器人
-	_, err := h.robotManager.SendCommand(ucode, robotCommand)
+	err := h.robotManager.SendCommand(ucode, robotCommand)
 	return err
 }
 
@@ -485,7 +485,7 @@ func (h *APIHandlers) GetClientByUCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := h.wsHandlers.GetClientByUcode(ucode)
+	client := h.wsHandlers.GetOperatorByUcode(ucode)
 	if client == nil {
 		response := map[string]interface{}{
 			"success": false,
@@ -513,7 +513,7 @@ func (h *APIHandlers) CheckUCodeOnline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isOnline := h.wsHandlers.GetClientByUcode(ucode) != nil
+	isOnline := h.wsHandlers.GetOperatorByUcode(ucode) != nil
 
 	response := map[string]interface{}{
 		"success": true,
