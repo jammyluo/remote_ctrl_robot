@@ -14,10 +14,6 @@ if [ ! -f "config/config.yaml" ]; then
     echo "警告: 未找到config.yaml配置文件，将使用默认配置"
 fi
 
-if [ ! -f "config/robots.yaml" ]; then
-    echo "警告: 未找到robots.yaml配置文件，将使用默认机器人配置"
-fi
-
 # 安装依赖
 echo "安装依赖..."
 go mod tidy
