@@ -38,7 +38,7 @@ func NewWebSocketHandlers(robotManager *services.RobotManager, operatorManager *
 	}
 }
 
-func (h *WebSocketHandlers) GetOperatorByUcode(ucode string) *services.Operator {
+func (h *WebSocketHandlers) GetOperatorByUcode(ucode string) *services.WebSocketService {
 	operator, err := h.operatorManager.GetOperator(ucode)
 	if err != nil {
 		return nil
@@ -125,10 +125,13 @@ func (h *WebSocketHandlers) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 // 注册 - 返回是否成功
 func (h *WebSocketHandlers) handleRegistration(wsService *services.WebSocketService, msg *models.WebSocketMessage) bool {
 
+	// 设置身份信息
+	wsService.SetIdentity(msg.UCode, msg.Version)
+
 	// 如果是机器人客户端，注册到机器人管理器
 	if msg.ClientType == models.ClientTypeRobot {
 		// 创建新机器人
-		_, err := h.robotManager.RegisterRobot(msg.UCode, wsService)
+		_, err := h.robotManager.RegisterRobot(wsService)
 		if err != nil {
 			wsService.SendError(msg, err.Error())
 			log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to register robot")
@@ -138,11 +141,13 @@ func (h *WebSocketHandlers) handleRegistration(wsService *services.WebSocketServ
 		wsService.SendSuccess(msg, "RegisterRobot successful")
 		// 设置机器人消息处理器回调
 		wsService.SetMessageHandler(h.createRobotMessageHandler())
+		// 设置机器人断开连接处理器回调
+		wsService.SetDisconnectHandler(h.createRobotDisconnectHandler())
 	}
 
 	// 如果是操作员客户端，添加到客户端管理器
 	if msg.ClientType == models.ClientTypeOperator {
-		if err := h.operatorManager.RegisterOperator(msg.UCode, wsService); err != nil {
+		if err := h.operatorManager.RegisterOperator(wsService); err != nil {
 			wsService.SendError(msg, err.Error())
 			log.Error().Err(err).Str("ucode", msg.UCode).Msg("Failed to add client")
 			return false
@@ -151,6 +156,9 @@ func (h *WebSocketHandlers) handleRegistration(wsService *services.WebSocketServ
 		wsService.SendSuccess(msg, "RegisterOperator successful")
 		// 设置客户端消息处理器回调
 		wsService.SetMessageHandler(h.createClientMessageHandler())
+
+		// 设置操作员断开连接处理器回调
+		wsService.SetDisconnectHandler(h.createOperatorDisconnectHandler())
 	}
 
 	// 启动WebSocket服务
@@ -180,5 +188,29 @@ func (h *WebSocketHandlers) createRobotMessageHandler() services.MessageHandler 
 func (h *WebSocketHandlers) createClientMessageHandler() services.MessageHandler {
 	return func(service *services.WebSocketService, message *models.WebSocketMessage) error {
 		return h.operatorManager.HandleMessage(message)
+	}
+}
+
+// createRobotDisconnectHandler 创建机器人断开连接处理器回调
+func (h *WebSocketHandlers) createRobotDisconnectHandler() services.DisconnectHandler {
+	return func(service *services.WebSocketService) {
+		log.Info().
+			Str("remote_addr", service.RemoteAddr).
+			Msg("Robot disconnected, cleaning up...")
+
+		// 通知机器人管理器进行清理
+		h.robotManager.UnregisterRobot(service)
+	}
+}
+
+// createOperatorDisconnectHandler 创建操作员断开连接处理器回调
+func (h *WebSocketHandlers) createOperatorDisconnectHandler() services.DisconnectHandler {
+	return func(service *services.WebSocketService) {
+		log.Info().
+			Str("remote_addr", service.RemoteAddr).
+			Msg("Operator disconnected, cleaning up...")
+
+		// 通知操作员管理器进行清理
+		h.operatorManager.UnregisterOperator(service)
 	}
 }

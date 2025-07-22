@@ -42,7 +42,7 @@ func main() {
 	gameService := services.NewGameService()
 
 	// 创建客户端管理器
-	operatorManager := services.NewOperatorManager(robotManager, gameService)
+	operatorManager := services.NewOperatorManager(robotManager)
 
 	// 创建处理器
 	wsHandlers := handlers.NewWebSocketHandlers(robotManager, operatorManager, gameService)
@@ -91,24 +91,6 @@ func main() {
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal().Err(err).Msg("Failed to start server")
-		}
-	}()
-
-	// 启动清理协程
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				operatorManager.CleanupDisconnectedClients()
-				// 清理无效的WebRTC流
-				cleaned := janusService.CleanupInactiveStreams()
-				if cleaned > 0 {
-					log.Info().Int("cleaned_streams", cleaned).Msg("Cleaned up inactive WebRTC streams")
-				}
-			}
 		}
 	}()
 
@@ -172,14 +154,18 @@ func setupLogging() {
 
 	zerolog.SetGlobalLevel(logLevel)
 
-	if viper.GetString("logging.format") == "console" {
+	format := viper.GetString("logging.format")
+	if format == "console" {
+		// 控制台格式：使用可读的时间格式
+		zerolog.TimeFieldFormat = "2006-01-02 15:04:05"
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	} else {
-		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+		// JSON格式：使用ISO8601时间格式，更易读
+		zerolog.TimeFieldFormat = time.RFC3339
 	}
 
 	log.Info().
 		Str("level", level).
-		Str("format", viper.GetString("logging.format")).
+		Str("format", format).
 		Msg("Logging configured")
 }

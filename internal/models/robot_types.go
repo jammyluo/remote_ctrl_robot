@@ -104,3 +104,26 @@ type RobotHealthCheck struct {
 	BatteryLevel float64   `json:"battery_level"`
 	Temperature  float64   `json:"temperature"`
 }
+
+// 操作员事件类型
+type OperatorEventType string
+
+const (
+	OperatorEventConnected    OperatorEventType = "connected"     // 连接成功
+	OperatorEventDisconnected OperatorEventType = "disconnected"  // 连接断开
+	OperatorEventError        OperatorEventType = "error"         // 错误
+	OperatorEventBindRobot    OperatorEventType = "bind_robot"    // 绑定机器人
+	OperatorEventControlRobot OperatorEventType = "control_robot" // 控制机器人
+	OperatorEventHeartbeat    OperatorEventType = "heartbeat"     // 心跳
+	OperatorEventJoinGame     OperatorEventType = "join_game"     // 加入游戏
+	OperatorEventLeaveGame    OperatorEventType = "leave_game"    // 离开游戏
+)
+
+// 操作员事件
+type OperatorEvent struct {
+	Type      OperatorEventType `json:"type"`
+	UCode     string            `json:"ucode"`
+	Timestamp time.Time         `json:"timestamp"`
+	Data      interface{}       `json:"data"`
+	Message   string            `json:"message,omitempty"`
+}

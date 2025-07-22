@@ -16,19 +16,26 @@ import (
 // MessageHandler 消息处理器回调函数类型
 type MessageHandler func(service *WebSocketService, message *models.WebSocketMessage) error
 
+// DisconnectHandler 断开连接处理器回调函数类型
+type DisconnectHandler func(service *WebSocketService)
+
 // WebSocketService 统一的WebSocket连接管理服务
 type WebSocketService struct {
+	UCode      string          // 唯一标识
+	Version    string          // 版本
 	Conn       *websocket.Conn // WebSocket连接
-	LastSeen   time.Time       // 最后活跃时间
+	CreatedAt  time.Time       // 创建时间
+	UpdatedAt  time.Time       // 更新时间
 	RemoteAddr string          // 远程地址
-	Connected  bool            // 是否连接
 	WriteMutex sync.Mutex      // 写锁
 	Mutex      sync.RWMutex    // 读写锁
 	ctx        context.Context
 	cancel     context.CancelFunc
+	connected  bool // 是否连接
 
-	// 消息处理器回调
-	messageHandler MessageHandler
+	// 回调函数
+	messageHandler    MessageHandler    // 消息处理器回调
+	disconnectHandler DisconnectHandler // 断开连接处理器回调
 }
 
 // NewWebSocketService 创建新的WebSocket服务
@@ -38,15 +45,27 @@ func NewWebSocketService(conn *websocket.Conn) *WebSocketService {
 	return &WebSocketService{
 		Conn:       conn,
 		RemoteAddr: conn.RemoteAddr().String(),
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 		ctx:        ctx,
 		cancel:     cancel,
 	}
 }
 
+func (s *WebSocketService) IsOnline() bool {
+	s.Mutex.RLock()
+	defer s.Mutex.RUnlock()
+	return s.connected
+}
+
+func (s *WebSocketService) IsTimeout(timeout time.Duration) bool {
+	return time.Since(s.UpdatedAt) > timeout
+}
+
 // Start 启动WebSocket服务
 func (s *WebSocketService) Start() error {
 	s.Mutex.Lock()
-	s.Connected = true
+	s.connected = true
 	s.Mutex.Unlock()
 
 	log.Info().
@@ -77,7 +96,7 @@ func (s *WebSocketService) IsConnected() bool {
 	defer s.Mutex.RUnlock()
 
 	// 检查连接状态和连接对象
-	if !s.Connected || s.Conn == nil {
+	if !s.connected || s.Conn == nil {
 		return false
 	}
 
@@ -93,6 +112,12 @@ func (s *WebSocketService) IsConnected() bool {
 // GetConnection 获取WebSocket连接
 func (s *WebSocketService) GetConnection() *websocket.Conn {
 	return s.Conn
+}
+
+// SetIdentity 设置身份信息
+func (s *WebSocketService) SetIdentity(ucode string, version string) {
+	s.UCode = ucode
+	s.Version = version
 }
 
 // SendMessage 发送消息（带锁保护）
@@ -202,6 +227,11 @@ func (s *WebSocketService) SetMessageHandler(handler MessageHandler) {
 	s.messageHandler = handler
 }
 
+// SetDisconnectHandler 设置断开连接处理器回调
+func (s *WebSocketService) SetDisconnectHandler(handler DisconnectHandler) {
+	s.disconnectHandler = handler
+}
+
 // handleMessage 处理单条消息
 func (s *WebSocketService) handleMessage(data []byte) error {
 	var message models.WebSocketMessage
@@ -222,7 +252,12 @@ func (s *WebSocketService) disconnect() {
 	defer s.Mutex.Unlock()
 
 	// 先标记为断开，防止新的写入操作
-	s.Connected = false
+	s.connected = false
+
+	// 调用断开连接回调函数
+	if s.disconnectHandler != nil {
+		go s.disconnectHandler(s)
+	}
 
 	if s.Conn != nil {
 		// 设置关闭状态，防止新的读写操作
@@ -242,7 +277,7 @@ func (s *WebSocketService) safeWriteJSON(v interface{}) error {
 	defer s.WriteMutex.Unlock()
 
 	// 再次检查连接状态，防止在获取锁期间连接断开
-	if s.Conn == nil || !s.Connected {
+	if s.Conn == nil || !s.connected {
 		return fmt.Errorf("websocket connection is nil")
 	}
 	// 设置写入超时
@@ -253,7 +288,7 @@ func (s *WebSocketService) safeWriteJSON(v interface{}) error {
 	if err != nil {
 		// 如果写入失败，标记连接为断开
 		log.Warn().Err(err).Str("remote_addr", s.RemoteAddr).Msg("Failed to write to WebSocket, marking as disconnected")
-		s.Connected = false
+		s.connected = false
 	}
 	return err
 }
