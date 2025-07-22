@@ -207,6 +207,15 @@ func (ws *WebSocketService) calculateReconnectDelay() time.Duration {
 	return time.Duration(delay)
 }
 
+// pow 计算幂次
+func pow(base float64, exponent int) float64 {
+	result := 1.0
+	for i := 0; i < exponent; i++ {
+		result *= base
+	}
+	return result
+}
+
 // performReconnect 执行重连
 func (ws *WebSocketService) performReconnect() {
 	select {

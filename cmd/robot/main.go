@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -54,28 +53,33 @@ type RobotState struct {
 // RobotClient 极简机器人客户端
 type RobotClient struct {
 	config    *Config
-	conn      *websocket.Conn
+	wsService *WebSocketService
 	sequence  int64
-	connected bool
 	done      chan struct{}
 
-	// 重连相关字段
-	reconnectAttempts int
-	lastReconnectTime time.Time
-	reconnectTimer    *time.Timer
-
 	// 并发安全
-	connMutex sync.Mutex
-	seqMutex  sync.Mutex
+	seqMutex sync.Mutex
 }
 
 // NewRobotClient 创建新的机器人客户端
 func NewRobotClient(config *Config) *RobotClient {
-	return &RobotClient{
-		config:   config,
-		sequence: 1,
-		done:     make(chan struct{}),
+	client := &RobotClient{
+		config: config,
+		done:   make(chan struct{}),
 	}
+
+	// 创建WebSocket服务
+	client.wsService = NewWebSocketService(config)
+
+	// 设置WebSocket服务回调
+	client.wsService.SetCallbacks(
+		client.onConnect,    // 连接成功回调
+		client.onDisconnect, // 连接断开回调
+		client.onMessage,    // 消息接收回调
+		client.onError,      // 错误处理回调
+	)
+
+	return client
 }
 
 // Start 启动客户端
@@ -83,50 +87,38 @@ func (r *RobotClient) Start() error {
 	log.Info().
 		Str("ucode", r.config.Robot.UCode).
 		Str("server", r.config.Server.URL).
-		Msg("Starting to connect to server")
+		Msg("Starting robot client")
 
-	// 尝试连接
-	return r.connect()
+	// 启动WebSocket服务
+	return r.wsService.Start()
 }
 
-// connect 建立连接
-func (r *RobotClient) connect() error {
-	// 设置WebSocket连接选项
-	dialer := websocket.Dialer{
-		HandshakeTimeout: r.config.GetConnectTimeout(),
-	}
+// Stop 停止客户端
+func (r *RobotClient) Stop() {
+	log.Info().
+		Str("ucode", r.config.Robot.UCode).
+		Msg("Stopping robot client")
 
-	// 连接WebSocket
-	conn, _, err := dialer.Dial(r.config.Server.URL, nil)
-	if err != nil {
-		return fmt.Errorf("connect failed: %v", err)
-	}
+	close(r.done)
 
-	r.connMutex.Lock()
-	r.conn = conn
-	r.connected = true
-	r.connMutex.Unlock()
+	// 停止WebSocket服务
+	r.wsService.Stop()
 
-	// 重置重连计数
-	r.reconnectAttempts = 0
+	log.Info().
+		Str("ucode", r.config.Robot.UCode).
+		Msg("Robot client stopped")
+}
 
-	// 设置连接超时
-	r.connMutex.Lock()
-	r.conn.SetReadDeadline(time.Now().Add(r.config.GetReadTimeout()))
-	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
-	r.connMutex.Unlock()
+// onConnect 连接成功回调
+func (r *RobotClient) onConnect() error {
+	log.Info().
+		Str("ucode", r.config.Robot.UCode).
+		Msg("Robot connected, sending register message")
 
 	// 发送注册消息
 	if err := r.sendRegister(); err != nil {
-		r.connMutex.Lock()
-		r.conn.Close()
-		r.connected = false
-		r.connMutex.Unlock()
-		return fmt.Errorf("register failed: %v", err)
+		return fmt.Errorf("send register failed: %v", err)
 	}
-
-	// 启动消息处理
-	go r.handleMessages()
 
 	// 启动心跳
 	go r.keepAlive()
@@ -134,138 +126,38 @@ func (r *RobotClient) connect() error {
 	// 启动状态上报
 	go r.reportStatus()
 
-	log.Info().
-		Str("ucode", r.config.Robot.UCode).
-		Msg("Connected successfully")
 	return nil
 }
 
-// Stop 停止客户端
-func (r *RobotClient) Stop() {
+// onDisconnect 连接断开回调
+func (r *RobotClient) onDisconnect() {
 	log.Info().
 		Str("ucode", r.config.Robot.UCode).
-		Msg("Stopping client")
+		Msg("Robot disconnected")
+}
 
-	r.connMutex.Lock()
-	r.connected = false
-	r.connMutex.Unlock()
-
-	close(r.done)
-
-	// 停止重连定时器
-	if r.reconnectTimer != nil {
-		r.reconnectTimer.Stop()
+// onMessage 消息接收回调
+func (r *RobotClient) onMessage(message []byte) error {
+	var msg WebSocketMessage
+	if err := json.Unmarshal(message, &msg); err != nil {
+		return fmt.Errorf("parse message failed: %v", err)
 	}
 
-	r.connMutex.Lock()
-	if r.conn != nil {
-		r.conn.Close()
-	}
-	r.connMutex.Unlock()
-
-	log.Info().
+	log.Debug().
 		Str("ucode", r.config.Robot.UCode).
-		Msg("Client stopped")
+		Str("command", string(msg.Command)).
+		Int64("sequence", msg.Sequence).
+		Msg("Received message")
+
+	return nil
 }
 
-// scheduleReconnect 安排重连
-func (r *RobotClient) scheduleReconnect() {
-	if !r.config.Reconnect.Enabled {
-		log.Warn().
-			Str("ucode", r.config.Robot.UCode).
-			Msg("Reconnect disabled, not attempting to reconnect")
-		return
-	}
-
-	if r.reconnectAttempts >= r.config.Reconnect.MaxAttempts {
-		log.Error().
-			Str("ucode", r.config.Robot.UCode).
-			Int("max_attempts", r.config.Reconnect.MaxAttempts).
-			Msg("Max reconnect attempts reached, giving up")
-		return
-	}
-
-	// 计算重连延迟
-	delay := r.calculateReconnectDelay()
-
-	log.Info().
+// onError 错误处理回调
+func (r *RobotClient) onError(err error) {
+	log.Error().
+		Err(err).
 		Str("ucode", r.config.Robot.UCode).
-		Int("attempt", r.reconnectAttempts+1).
-		Int("max_attempts", r.config.Reconnect.MaxAttempts).
-		Dur("delay", delay).
-		Msg("Scheduling reconnect")
-
-	// 设置重连定时器
-	r.reconnectTimer = time.AfterFunc(delay, func() {
-		r.performReconnect()
-	})
-}
-
-// calculateReconnectDelay 计算重连延迟
-func (r *RobotClient) calculateReconnectDelay() time.Duration {
-	// 指数退避算法
-	baseDelay := time.Duration(r.config.Reconnect.InitialDelay) * time.Second
-	maxDelay := time.Duration(r.config.Reconnect.MaxDelay) * time.Second
-
-	// 计算延迟：baseDelay * (backoff_multiplier ^ attempts)
-	delay := float64(baseDelay) * pow(r.config.Reconnect.BackoffMultiplier, r.reconnectAttempts)
-
-	// 添加随机抖动 (±20%)
-	jitter := delay * 0.2 * (rand.Float64()*2 - 1)
-	delay += jitter
-
-	// 确保延迟在合理范围内
-	if delay < float64(baseDelay) {
-		delay = float64(baseDelay)
-	}
-	if delay > float64(maxDelay) {
-		delay = float64(maxDelay)
-	}
-
-	return time.Duration(delay)
-}
-
-// pow 计算幂次
-func pow(base float64, exponent int) float64 {
-	result := 1.0
-	for i := 0; i < exponent; i++ {
-		result *= base
-	}
-	return result
-}
-
-// performReconnect 执行重连
-func (r *RobotClient) performReconnect() {
-	select {
-	case <-r.done:
-		return
-	default:
-	}
-
-	r.reconnectAttempts++
-	r.lastReconnectTime = time.Now()
-
-	log.Info().
-		Str("ucode", r.config.Robot.UCode).
-		Int("attempt", r.reconnectAttempts).
-		Int("max_attempts", r.config.Reconnect.MaxAttempts).
-		Msg("Attempting to reconnect")
-
-	if err := r.connect(); err != nil {
-		log.Error().
-			Err(err).
-			Str("ucode", r.config.Robot.UCode).
-			Int("attempt", r.reconnectAttempts).
-			Msg("Reconnect failed")
-
-		// 安排下次重连
-		r.scheduleReconnect()
-	} else {
-		log.Info().
-			Str("ucode", r.config.Robot.UCode).
-			Int("attempt", r.reconnectAttempts).
-			Msg("Reconnect successful")
-	}
+		Msg("Robot error occurred")
 }
 
 // getNextSequence 获取下一个序列号
@@ -288,16 +180,7 @@ func (r *RobotClient) sendRegister() error {
 		Data:       map[string]interface{}{},
 	}
 
-	r.connMutex.Lock()
-	defer r.connMutex.Unlock()
-
-	if r.conn == nil {
-		return fmt.Errorf("connection is nil")
-	}
-
-	// 设置写入超时
-	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
-	return r.conn.WriteJSON(msg)
+	return r.wsService.SendMessage(msg)
 }
 
 // sendPing 发送心跳消息
@@ -312,16 +195,7 @@ func (r *RobotClient) sendPing() error {
 		Data:       map[string]interface{}{},
 	}
 
-	r.connMutex.Lock()
-	defer r.connMutex.Unlock()
-
-	if r.conn == nil {
-		return fmt.Errorf("connection is nil")
-	}
-
-	// 设置写入超时
-	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
-	return r.conn.WriteJSON(msg)
+	return r.wsService.SendMessage(msg)
 }
 
 // sendStatusUpdate 发送状态更新
@@ -362,73 +236,7 @@ func (r *RobotClient) sendStatusUpdate() error {
 		Data:       status,
 	}
 
-	r.connMutex.Lock()
-	defer r.connMutex.Unlock()
-
-	if r.conn == nil {
-		return fmt.Errorf("connection is nil")
-	}
-
-	// 设置写入超时
-	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
-	return r.conn.WriteJSON(msg)
-}
-
-// handleMessages 处理接收到的消息
-func (r *RobotClient) handleMessages() {
-	for {
-		select {
-		case <-r.done:
-			return
-		default:
-			r.connMutex.Lock()
-			if r.conn == nil {
-				r.connMutex.Unlock()
-				return
-			}
-			// 设置读取超时
-			r.conn.SetReadDeadline(time.Now().Add(r.config.GetReadTimeout()))
-			r.connMutex.Unlock()
-
-			_, message, err := r.conn.ReadMessage()
-			if err != nil {
-				r.connMutex.Lock()
-				if r.connected {
-					log.Error().
-						Err(err).
-						Str("ucode", r.config.Robot.UCode).
-						Msg("Read message error")
-
-					// 标记连接断开
-					r.connected = false
-					r.conn.Close()
-					r.conn = nil
-					r.connMutex.Unlock()
-
-					// 安排重连
-					r.scheduleReconnect()
-				} else {
-					r.connMutex.Unlock()
-				}
-				return
-			}
-
-			var msg WebSocketMessage
-			if err := json.Unmarshal(message, &msg); err != nil {
-				log.Error().
-					Err(err).
-					Str("ucode", r.config.Robot.UCode).
-					Msg("Parse message failed")
-				continue
-			}
-
-			log.Debug().
-				Str("ucode", r.config.Robot.UCode).
-				Str("command", string(msg.Command)).
-				Int64("sequence", msg.Sequence).
-				Msg("Received message")
-		}
-	}
+	return r.wsService.SendMessage(msg)
 }
 
 // keepAlive 心跳保持
@@ -441,28 +249,12 @@ func (r *RobotClient) keepAlive() {
 		case <-r.done:
 			return
 		case <-ticker.C:
-			r.connMutex.Lock()
-			connected := r.connected
-			r.connMutex.Unlock()
-
-			if connected {
+			if r.wsService.IsConnected() {
 				if err := r.sendPing(); err != nil {
 					log.Error().
 						Err(err).
 						Str("ucode", r.config.Robot.UCode).
 						Msg("Send heartbeat failed")
-
-					r.connMutex.Lock()
-					// 标记连接断开
-					r.connected = false
-					if r.conn != nil {
-						r.conn.Close()
-						r.conn = nil
-					}
-					r.connMutex.Unlock()
-
-					// 安排重连
-					r.scheduleReconnect()
 				} else {
 					log.Debug().
 						Str("ucode", r.config.Robot.UCode).
@@ -483,28 +275,12 @@ func (r *RobotClient) reportStatus() {
 		case <-r.done:
 			return
 		case <-ticker.C:
-			r.connMutex.Lock()
-			connected := r.connected
-			r.connMutex.Unlock()
-
-			if connected {
+			if r.wsService.IsConnected() {
 				if err := r.sendStatusUpdate(); err != nil {
 					log.Error().
 						Err(err).
 						Str("ucode", r.config.Robot.UCode).
 						Msg("Send status update failed")
-
-					r.connMutex.Lock()
-					// 标记连接断开
-					r.connected = false
-					if r.conn != nil {
-						r.conn.Close()
-						r.conn = nil
-					}
-					r.connMutex.Unlock()
-
-					// 安排重连
-					r.scheduleReconnect()
 				} else {
 					log.Debug().
 						Str("ucode", r.config.Robot.UCode).
@@ -513,6 +289,14 @@ func (r *RobotClient) reportStatus() {
 			}
 		}
 	}
+}
+
+// GetStats 获取客户端统计信息
+func (r *RobotClient) GetStats() map[string]interface{} {
+	stats := r.wsService.GetStats()
+	stats["ucode"] = r.config.Robot.UCode
+	stats["sequence"] = r.sequence
+	return stats
 }
 
 // initLogger 初始化日志系统

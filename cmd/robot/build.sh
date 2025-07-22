@@ -21,7 +21,7 @@ go test -v ./...
 
 # 构建主程序
 echo "🔨 构建主程序..."
-go build -o robot-client main.go config.go
+go build -o robot-client main.go config.go websocket_service.go
 
 # 检查构建结果
 if [ -f "robot-client" ]; then

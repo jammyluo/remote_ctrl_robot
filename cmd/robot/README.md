@@ -1,95 +1,91 @@
 # 极简机器人客户端
 
-一个轻量级的机器人客户端，用于连接到远程控制系统，支持配置文件管理、自动重连和并发安全。
+一个基于Go语言的极简WebSocket机器人客户端，采用分层架构设计，支持自动重连、结构化日志和配置管理。
 
-## 🚀 特性
-
-- **极简设计**: 双文件实现，易于理解和维护
-- **配置文件支持**: 支持YAML配置文件管理所有设置
-- **环境变量覆盖**: 支持环境变量覆盖配置文件
-- **结构化日志**: 使用zerolog输出结构化日志
-- **自动重连**: 智能重连机制，支持指数退避算法
-- **并发安全**: 使用互斥锁保护共享资源，避免并发冲突
-- **状态模拟**: 模拟机器人状态上报
-- **心跳保持**: 定期发送心跳消息
-
-## 📁 项目结构
+## 项目结构
 
 ```
 cmd/robot/
-├── main.go          # 主程序（包含所有功能）
-├── config.go        # 配置管理模块
-├── config.yaml      # 配置文件
-├── main_test.go     # 单元测试
-├── build.sh         # 构建脚本
-├── go.mod           # Go模块定义
-└── README.md        # 说明文档
+├── main.go              # 主程序入口和机器人业务逻辑
+├── config.go            # 配置管理和YAML解析
+├── websocket_service.go # WebSocket连接管理服务
+├── config.yaml          # 配置文件
+├── build.sh             # 构建脚本
+├── main_test.go         # 单元测试
+└── README.md            # 项目文档
 ```
 
-## 🛠️ 构建
+## 架构设计
 
+### 分层架构
+- **RobotClient**: 机器人业务逻辑层，处理注册、心跳、状态上报等业务功能
+- **WebSocketService**: 连接管理层，负责WebSocket连接、重连、消息收发
+- **Config**: 配置管理层，处理YAML配置、环境变量、参数验证
+
+### 设计优势
+1. **职责分离**: 业务逻辑与连接管理完全分离
+2. **可测试性**: 每层都可以独立测试
+3. **可扩展性**: 易于添加新功能和修改现有功能
+4. **可维护性**: 代码结构清晰，易于理解和维护
+
+## 核心功能
+
+### 1. WebSocket连接管理
+- 自动连接和断开处理
+- 连接状态监控
+- 并发安全的连接操作
+
+### 2. 自动重连机制
+- 指数退避算法
+- 随机抖动避免雪崩
+- 可配置的重连策略
+- 最大重连次数限制
+
+### 3. 结构化日志
+- 基于zerolog的高性能日志
+- 支持JSON和控制台格式
+- 可配置的日志级别
+- 结构化字段输出
+
+### 4. 配置管理
+- YAML配置文件支持
+- 环境变量覆盖
+- 命令行参数支持
+- 配置验证和默认值
+
+### 5. 并发安全
+- 使用sync.Mutex保护共享资源
+- 线程安全的序列号生成
+- 并发安全的连接操作
+
+## 快速开始
+
+### 1. 构建项目
 ```bash
-# 构建可执行文件
 ./build.sh
-
-# 或者手动构建
-go mod tidy
-go build -o robot-client main.go config.go
 ```
 
-## 🚀 使用
-
-### 配置文件方式（推荐）
-
+### 2. 运行客户端
 ```bash
-# 使用默认配置文件
+# 使用默认配置
 ./robot-client
-
-# 指定配置文件
-./robot-client -config config.yaml
 
 # 使用自定义配置文件
 ./robot-client -config my_config.yaml
 ```
 
-### 环境变量覆盖
-
+### 3. 查看日志
 ```bash
-# 覆盖机器人配置
-export ROBOT_UCODE=robot_002
-export ROBOT_NAME=生产机器人
-export ROBOT_VERSION=2.0.0
+# 查看JSON格式日志
+./robot-client
 
-# 覆盖服务器配置
-export ROBOT_SERVER_URL=ws://prod-server:8000/ws/control
-export ROBOT_CONNECT_TIMEOUT=60
-
-# 覆盖日志配置
-export ROBOT_LOG_LEVEL=debug
-export ROBOT_LOG_FORMAT=console
-
-# 覆盖心跳和状态配置
-export ROBOT_HEARTBEAT_INTERVAL=60
-export ROBOT_STATUS_INTERVAL=30
-
-# 覆盖重连配置
-export ROBOT_RECONNECT_ENABLED=true
-export ROBOT_MAX_RECONNECT_ATTEMPTS=10
-
-# 运行客户端
+# 查看控制台格式日志（debug级别）
 ./robot-client
 ```
 
-### 参数说明
+## 配置说明
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-config` | 配置文件路径 | `config.yaml` |
-
-## ⚙️ 配置说明
-
-### 配置文件结构
-
+### 配置文件 (config.yaml)
 ```yaml
 # 机器人配置
 robot:
@@ -146,297 +142,228 @@ performance:
   enable_metrics: false                 # 启用性能指标
 ```
 
-### 环境变量映射
-
-| 配置项 | 环境变量 | 说明 |
-|--------|----------|------|
-| `robot.ucode` | `ROBOT_UCODE` | 机器人唯一标识 |
-| `robot.name` | `ROBOT_NAME` | 机器人名称 |
-| `robot.version` | `ROBOT_VERSION` | 版本号 |
-| `server.url` | `ROBOT_SERVER_URL` | 服务器地址 |
-| `server.connect_timeout` | `ROBOT_CONNECT_TIMEOUT` | 连接超时 |
-| `logging.level` | `ROBOT_LOG_LEVEL` | 日志级别 |
-| `logging.format` | `ROBOT_LOG_FORMAT` | 日志格式 |
-| `heartbeat.interval` | `ROBOT_HEARTBEAT_INTERVAL` | 心跳间隔 |
-| `status.interval` | `ROBOT_STATUS_INTERVAL` | 状态间隔 |
-| `reconnect.enabled` | `ROBOT_RECONNECT_ENABLED` | 启用重连 |
-| `reconnect.max_attempts` | `ROBOT_MAX_RECONNECT_ATTEMPTS` | 最大重连次数 |
-
-## 🔄 自动重连功能
-
-### 重连机制
-
-客户端具备智能重连机制，当连接断开时会自动尝试重连：
-
-1. **连接检测**: 在消息读取、心跳发送、状态上报时检测连接状态
-2. **自动重连**: 连接断开时自动安排重连
-3. **指数退避**: 使用指数退避算法避免频繁重连
-4. **随机抖动**: 添加随机抖动避免多个客户端同时重连
-5. **最大重试**: 可配置最大重连次数，避免无限重试
-
-### 重连算法
-
-#### 指数退避算法
-```
-延迟 = 初始延迟 × (退避倍数 ^ 重连次数) + 随机抖动
-```
-
-#### 示例重连时间
-- 第1次重连: 1-2秒
-- 第2次重连: 2-4秒  
-- 第3次重连: 4-8秒
-- 第4次重连: 8-16秒
-- 第5次重连: 16-32秒
-
-### 重连配置
-
-```yaml
-reconnect:
-  enabled: true              # 启用自动重连
-  max_attempts: 5            # 最大重连次数
-  initial_delay: 1           # 初始重连延迟（秒）
-  max_delay: 60              # 最大重连延迟（秒）
-  backoff_multiplier: 2.0    # 退避倍数
-```
-
-### 重连日志示例
-
-```json
-{"level":"error","ucode":"robot_001","error":"connection lost","time":"2024-01-01T12:00:00Z","message":"Read message error"}
-{"level":"info","ucode":"robot_001","attempt":1,"max_attempts":5,"delay":"1.2s","time":"2024-01-01T12:00:00Z","message":"Scheduling reconnect"}
-{"level":"info","ucode":"robot_001","attempt":1,"max_attempts":5,"time":"2024-01-01T12:00:01Z","message":"Attempting to reconnect"}
-{"level":"info","ucode":"robot_001","attempt":1,"time":"2024-01-01T12:00:01Z","message":"Reconnect successful"}
-```
-
-## 🔒 并发安全
-
-### 并发保护机制
-
-客户端使用互斥锁保护共享资源，确保并发安全：
-
-1. **连接互斥锁**: 保护WebSocket连接的状态和操作
-2. **序列号互斥锁**: 保护消息序列号的生成
-3. **原子操作**: 确保序列号的唯一性和连续性
-
-### 并发安全特性
-
-- **线程安全**: 多个goroutine可以安全地同时访问客户端
-- **无竞态条件**: 使用互斥锁避免数据竞争
-- **原子序列号**: 确保消息序列号的唯一性
-- **安全关闭**: 优雅地处理并发关闭操作
-
-### 并发测试
-
+### 环境变量覆盖
 ```bash
-# 运行并发安全测试
-go test -v -race ./...
-
-# 测试结果示例
-=== RUN   TestConcurrentSequenceGeneration
---- PASS: TestConcurrentSequenceGeneration (0.00s)
-=== RUN   TestConcurrentConnectionAccess
---- PASS: TestConcurrentConnectionAccess (0.00s)
-PASS
+export ROBOT_UCODE="robot_002"
+export SERVER_URL="ws://192.168.1.100:8000/ws/control"
+export LOGGING_LEVEL="debug"
+./robot-client
 ```
 
-## 📡 功能
+## API接口
 
-### 1. 自动注册
-连接成功后自动发送注册消息：
-```json
-{
-  "type": "Request",
-  "command": "CMD_REGISTER",
-  "sequence": 1,
-  "ucode": "robot_001",
-  "client_type": "robot",
-  "version": "1.0.0",
-  "data": {}
-}
+### RobotClient
+```go
+// 创建客户端
+client := NewRobotClient(config)
+
+// 启动客户端
+err := client.Start()
+
+// 停止客户端
+client.Stop()
+
+// 获取统计信息
+stats := client.GetStats()
 ```
 
-### 2. 心跳保持
-每30秒发送一次心跳消息：
-```json
-{
-  "type": "Request",
-  "command": "CMD_PING",
-  "sequence": 2,
-  "ucode": "robot_001",
-  "client_type": "robot",
-  "version": "1.0.0",
-  "data": {}
-}
+### WebSocketService
+```go
+// 创建WebSocket服务
+wsService := NewWebSocketService(config)
+
+// 设置回调函数
+wsService.SetCallbacks(
+    onConnect,    // 连接成功回调
+    onDisconnect, // 连接断开回调
+    onMessage,    // 消息接收回调
+    onError,      // 错误处理回调
+)
+
+// 启动服务
+err := wsService.Start()
+
+// 停止服务
+wsService.Stop()
+
+// 检查连接状态
+connected := wsService.IsConnected()
+
+// 发送消息
+err := wsService.SendMessage(message)
+
+// 获取统计信息
+stats := wsService.GetStats()
 ```
 
-### 3. 状态上报
-每10秒上报一次机器人状态：
-```json
-{
-  "type": "Request",
-  "command": "CMD_UPDATE_ROBOT_STATUS",
-  "sequence": 3,
-  "ucode": "robot_001",
-  "client_type": "robot",
-  "version": "1.0.0",
-  "data": {
-    "base_position": [1.2, 3.4, 0],
-    "base_orientation": [0, 0, 0, 1],
-    "battery_level": 85.5,
-    "temperature": 25.3,
-    "status": "idle",
-    "error_code": 0,
-    "error_message": ""
-  }
-}
+## 测试
+
+### 运行所有测试
+```bash
+go test -v ./...
 ```
 
-### 4. 自动重连
-连接断开时自动重连：
-- 使用指数退避算法
-- 支持随机抖动
-- 可配置最大重试次数
-- 详细的重连日志
+### 运行并发测试
+```bash
+go test -race ./...
+```
 
-### 5. 并发安全
-多goroutine安全操作：
-- 线程安全的连接管理
-- 原子序列号生成
-- 无竞态条件
-- 优雅关闭处理
+### 测试覆盖率
+```bash
+go test -cover ./...
+```
 
-## 📊 日志系统
+## 日志系统
 
 ### 日志级别
-
-- **debug**: 详细调试信息，包括心跳和状态更新
-- **info**: 一般信息，包括连接、启动、停止、重连等
-- **warn**: 警告信息
-- **error**: 错误信息
+- `debug`: 调试信息，包含详细的执行流程
+- `info`: 一般信息，包含重要的状态变化
+- `warn`: 警告信息，包含需要注意的问题
+- `error`: 错误信息，包含需要处理的错误
 
 ### 日志格式
+- `json`: 结构化JSON格式，适合日志分析
+- `console`: 人类可读的控制台格式，适合开发调试
 
-#### Info级别及以上（JSON格式）
+### 日志示例
 ```json
-{"level":"info","ucode":"robot_001","server":"ws://localhost:8000/ws/control","time":"2024-01-01T12:00:00Z","message":"Start robot client"}
-{"level":"info","ucode":"robot_001","time":"2024-01-01T12:00:01Z","message":"Connected successfully"}
-{"level":"info","ucode":"robot_001","attempt":1,"max_attempts":5,"delay":"1.2s","time":"2024-01-01T12:00:02Z","message":"Scheduling reconnect"}
-{"level":"error","ucode":"robot_001","error":"connection lost","time":"2024-01-01T12:00:03Z","message":"Read message error"}
-```
-
-#### Debug级别（控制台格式）
-```
-2024-01-01T12:00:00Z DBG 开始连接服务器 ucode=robot_001 server=ws://localhost:8000/ws/control
-2024-01-01T12:00:01Z DBG 发送心跳 ucode=robot_001
-2024-01-01T12:00:02Z DBG 发送状态更新 ucode=robot_001
-```
-
-### 日志字段
-
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| `level` | 日志级别 | "info", "debug", "error" |
-| `time` | 时间戳 | "2024-01-01T12:00:00Z" |
-| `message` | 日志消息 | "Start robot client" |
-| `ucode` | 机器人标识 | "robot_001" |
-| `server` | 服务器地址 | "ws://localhost:8000/ws/control" |
-| `error` | 错误信息 | "connection lost" |
-| `command` | 命令类型 | "CMD_PING" |
-| `sequence` | 序列号 | 123 |
-| `attempt` | 重连尝试次数 | 1 |
-| `max_attempts` | 最大重连次数 | 5 |
-| `delay` | 重连延迟 | "1.2s" |
-
-## 🔧 开发
-
-### 添加新功能
-
-1. **添加新的命令类型**:
-```go
-const (
-    CMD_TYPE_NEW_COMMAND CommandType = "CMD_NEW_COMMAND"
-)
-```
-
-2. **添加新的消息处理方法**:
-```go
-func (r *RobotClient) sendNewCommand() error {
-    msg := WebSocketMessage{
-        Type:       WSMessageTypeRequest,
-        Command:    CMD_TYPE_NEW_COMMAND,
-        Sequence:   r.getNextSequence(),
-        UCode:      r.config.Robot.UCode,
-        ClientType: ClientTypeRobot,
-        Version:    r.config.Robot.Version,
-        Data:       map[string]interface{}{},
-    }
-    
-    r.connMutex.Lock()
-    defer r.connMutex.Unlock()
-    
-    if r.conn == nil {
-        return fmt.Errorf("connection is nil")
-    }
-    
-    r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
-    return r.conn.WriteJSON(msg)
+{
+  "level": "info",
+  "time": "2024-01-15T10:30:00Z",
+  "ucode": "robot_001",
+  "server": "ws://localhost:8000/ws/control",
+  "message": "Starting robot client"
 }
 ```
 
-### 测试
+## 自动重连机制
 
-```bash
-# 运行测试
-go test -v ./...
+### 重连算法
+1. **指数退避**: 延迟时间 = 初始延迟 × (退避倍数 ^ 重连次数)
+2. **随机抖动**: 添加±20%的随机抖动，避免多个客户端同时重连
+3. **最大延迟**: 限制最大重连延迟，避免无限等待
 
-# 运行并发安全测试
-go test -v -race ./...
+### 重连配置
+- `enabled`: 是否启用自动重连
+- `max_attempts`: 最大重连次数
+- `initial_delay`: 初始重连延迟
+- `max_delay`: 最大重连延迟
+- `backoff_multiplier`: 退避倍数
 
-# 运行并查看详细输出
-go test -v -race ./...
+### 重连日志
+```
+{"level":"info","time":"2024-01-15T10:30:00Z","attempt":1,"max_attempts":5,"delay":"2.1s","message":"Scheduling reconnect"}
+{"level":"info","time":"2024-01-15T10:30:02Z","attempt":1,"message":"Attempting to reconnect"}
+{"level":"info","time":"2024-01-15T10:30:02Z","attempt":1,"message":"Reconnect successful"}
 ```
 
-## 🔄 与旧版本对比
+## 并发安全
 
-| 特性 | 旧版本 | 极简版本 | 改进 |
-|------|--------|----------|------|
-| **文件数量** | 7个 | 5个 | -29% |
-| **代码行数** | ~750行 | ~836行 | +11% |
-| **依赖数量** | 3个 | 3个 | 0% |
-| **配置复杂度** | 高 | 中等 | 显著简化 |
-| **学习成本** | 高 | 低 | 显著降低 |
-| **日志系统** | emoji日志 | 结构化日志 | 更专业 |
-| **配置管理** | 环境变量 | 配置文件+环境变量 | 更灵活 |
-| **重连机制** | 无 | 智能重连 | 新增功能 |
-| **并发安全** | 无 | 互斥锁保护 | 新增功能 |
+### 保护机制
+- **连接互斥锁**: 保护WebSocket连接的所有操作
+- **序列号互斥锁**: 保护序列号生成和递增
+- **状态互斥锁**: 保护连接状态和重连状态
 
-## 🎯 适用场景
+### 并发测试
+```bash
+# 运行并发测试
+go test -race ./...
 
-- **快速原型**: 快速搭建机器人客户端
-- **测试环境**: 用于系统测试和调试
-- **学习示例**: 学习WebSocket客户端开发
-- **轻量部署**: 资源受限的环境
-- **生产环境**: 结构化日志便于监控和分析
-- **配置管理**: 需要灵活配置管理的场景
-- **高可用性**: 需要自动重连的场景
-- **并发环境**: 需要线程安全的场景
+# 测试序列号生成的并发安全性
+go test -run TestConcurrentSequenceGeneration -race
+```
 
-## 📝 注意事项
+## 性能优化
 
-1. **状态模拟**: 当前版本使用随机数据模拟机器人状态
-2. **错误处理**: 连接断开时会自动重连
-3. **资源清理**: 程序退出时会自动清理资源
-4. **并发安全**: 使用互斥锁保护共享资源
-5. **日志级别**: 生产环境建议使用info级别，调试时使用debug级别
-6. **配置文件**: 支持YAML格式，支持环境变量覆盖
-7. **超时控制**: 支持连接、读取、写入超时配置
-8. **重连策略**: 使用指数退避算法，避免频繁重连
-9. **线程安全**: 所有共享资源都有互斥锁保护
+### 内存优化
+- 使用对象池减少GC压力
+- 复用消息结构体
+- 限制缓冲区大小
 
-## 🤝 贡献
+### 网络优化
+- 设置合理的超时时间
+- 使用连接池
+- 实现消息压缩
 
-欢迎提交Issue和Pull Request来改进这个项目！
+### 日志优化
+- 异步日志写入
+- 日志级别过滤
+- 结构化日志减少解析开销
 
-## �� 许可证
+## 故障排除
 
-MIT License 
+### 常见问题
+
+1. **连接失败**
+   ```
+   检查服务器地址和端口是否正确
+   检查网络连接是否正常
+   检查防火墙设置
+   ```
+
+2. **重连失败**
+   ```
+   检查重连配置是否正确
+   检查服务器是否可用
+   查看重连日志了解详细错误
+   ```
+
+3. **日志输出问题**
+   ```
+   检查日志级别设置
+   检查日志格式配置
+   检查输出目标设置
+   ```
+
+### 调试模式
+```bash
+# 启用debug级别日志
+export LOGGING_LEVEL="debug"
+./robot-client
+
+# 使用控制台格式查看详细日志
+export LOGGING_FORMAT="console"
+./robot-client
+```
+
+## 开发指南
+
+### 添加新功能
+1. 在相应的层中添加功能
+2. 添加配置选项
+3. 编写单元测试
+4. 更新文档
+
+### 代码规范
+- 使用Go标准格式化工具
+- 遵循Go命名约定
+- 添加适当的注释
+- 编写单元测试
+
+### 提交规范
+- 使用清晰的提交信息
+- 包含功能描述和影响范围
+- 关联相关的issue
+
+## 版本历史
+
+### v1.0.0 (2024-01-15)
+- 初始版本发布
+- 支持基本的WebSocket连接
+- 实现自动重连机制
+- 添加结构化日志
+- 支持配置文件管理
+
+## 许可证
+
+MIT License
+
+## 贡献
+
+欢迎提交Issue和Pull Request！
+
+## 联系方式
+
+如有问题，请通过以下方式联系：
+- 提交GitHub Issue
+- 发送邮件至项目维护者 
