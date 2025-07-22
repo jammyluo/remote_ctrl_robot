@@ -15,7 +15,7 @@ server:
 
 # 心跳配置
 heartbeat:
-  interval: 30                          # 心跳间隔（秒）
+  interval: 10                          # 心跳间隔（秒）
   timeout: 10                           # 心跳超时（秒）
 
 # 状态上报配置

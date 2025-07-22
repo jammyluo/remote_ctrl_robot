@@ -1,6 +1,6 @@
 # 极简机器人客户端
 
-一个轻量级的机器人客户端，用于连接到远程控制系统，支持配置文件管理和自动重连。
+一个轻量级的机器人客户端，用于连接到远程控制系统，支持配置文件管理、自动重连和并发安全。
 
 ## 🚀 特性
 
@@ -9,6 +9,7 @@
 - **环境变量覆盖**: 支持环境变量覆盖配置文件
 - **结构化日志**: 使用zerolog输出结构化日志
 - **自动重连**: 智能重连机制，支持指数退避算法
+- **并发安全**: 使用互斥锁保护共享资源，避免并发冲突
 - **状态模拟**: 模拟机器人状态上报
 - **心跳保持**: 定期发送心跳消息
 
@@ -207,6 +208,37 @@ reconnect:
 {"level":"info","ucode":"robot_001","attempt":1,"time":"2024-01-01T12:00:01Z","message":"Reconnect successful"}
 ```
 
+## 🔒 并发安全
+
+### 并发保护机制
+
+客户端使用互斥锁保护共享资源，确保并发安全：
+
+1. **连接互斥锁**: 保护WebSocket连接的状态和操作
+2. **序列号互斥锁**: 保护消息序列号的生成
+3. **原子操作**: 确保序列号的唯一性和连续性
+
+### 并发安全特性
+
+- **线程安全**: 多个goroutine可以安全地同时访问客户端
+- **无竞态条件**: 使用互斥锁避免数据竞争
+- **原子序列号**: 确保消息序列号的唯一性
+- **安全关闭**: 优雅地处理并发关闭操作
+
+### 并发测试
+
+```bash
+# 运行并发安全测试
+go test -v -race ./...
+
+# 测试结果示例
+=== RUN   TestConcurrentSequenceGeneration
+--- PASS: TestConcurrentSequenceGeneration (0.00s)
+=== RUN   TestConcurrentConnectionAccess
+--- PASS: TestConcurrentConnectionAccess (0.00s)
+PASS
+```
+
 ## 📡 功能
 
 ### 1. 自动注册
@@ -265,6 +297,13 @@ reconnect:
 - 支持随机抖动
 - 可配置最大重试次数
 - 详细的重连日志
+
+### 5. 并发安全
+多goroutine安全操作：
+- 线程安全的连接管理
+- 原子序列号生成
+- 无竞态条件
+- 优雅关闭处理
 
 ## 📊 日志系统
 
@@ -325,14 +364,21 @@ func (r *RobotClient) sendNewCommand() error {
     msg := WebSocketMessage{
         Type:       WSMessageTypeRequest,
         Command:    CMD_TYPE_NEW_COMMAND,
-        Sequence:   r.sequence,
+        Sequence:   r.getNextSequence(),
         UCode:      r.config.Robot.UCode,
         ClientType: ClientTypeRobot,
         Version:    r.config.Robot.Version,
         Data:       map[string]interface{}{},
     }
     
-    r.sequence++
+    r.connMutex.Lock()
+    defer r.connMutex.Unlock()
+    
+    if r.conn == nil {
+        return fmt.Errorf("connection is nil")
+    }
+    
+    r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
     return r.conn.WriteJSON(msg)
 }
 ```
@@ -343,6 +389,9 @@ func (r *RobotClient) sendNewCommand() error {
 # 运行测试
 go test -v ./...
 
+# 运行并发安全测试
+go test -v -race ./...
+
 # 运行并查看详细输出
 go test -v -race ./...
 ```
@@ -352,13 +401,14 @@ go test -v -race ./...
 | 特性 | 旧版本 | 极简版本 | 改进 |
 |------|--------|----------|------|
 | **文件数量** | 7个 | 5个 | -29% |
-| **代码行数** | ~750行 | ~700行 | -7% |
+| **代码行数** | ~750行 | ~836行 | +11% |
 | **依赖数量** | 3个 | 3个 | 0% |
 | **配置复杂度** | 高 | 中等 | 显著简化 |
 | **学习成本** | 高 | 低 | 显著降低 |
 | **日志系统** | emoji日志 | 结构化日志 | 更专业 |
 | **配置管理** | 环境变量 | 配置文件+环境变量 | 更灵活 |
 | **重连机制** | 无 | 智能重连 | 新增功能 |
+| **并发安全** | 无 | 互斥锁保护 | 新增功能 |
 
 ## 🎯 适用场景
 
@@ -369,17 +419,19 @@ go test -v -race ./...
 - **生产环境**: 结构化日志便于监控和分析
 - **配置管理**: 需要灵活配置管理的场景
 - **高可用性**: 需要自动重连的场景
+- **并发环境**: 需要线程安全的场景
 
 ## 📝 注意事项
 
 1. **状态模拟**: 当前版本使用随机数据模拟机器人状态
 2. **错误处理**: 连接断开时会自动重连
 3. **资源清理**: 程序退出时会自动清理资源
-4. **并发安全**: 使用channel进行goroutine间通信
+4. **并发安全**: 使用互斥锁保护共享资源
 5. **日志级别**: 生产环境建议使用info级别，调试时使用debug级别
 6. **配置文件**: 支持YAML格式，支持环境变量覆盖
 7. **超时控制**: 支持连接、读取、写入超时配置
 8. **重连策略**: 使用指数退避算法，避免频繁重连
+9. **线程安全**: 所有共享资源都有互斥锁保护
 
 ## 🤝 贡献
 

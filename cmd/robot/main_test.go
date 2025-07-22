@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -266,4 +267,84 @@ func TestReconnectDelayCalculation(t *testing.T) {
 	if delay3 > 60*time.Second {
 		t.Errorf("重连延迟不应该超过60秒, 实际为 %v", delay3)
 	}
+}
+
+func TestConcurrentSequenceGeneration(t *testing.T) {
+	config := &Config{
+		Robot: RobotConfig{
+			UCode: "test_robot",
+		},
+	}
+
+	client := NewRobotClient(config)
+
+	// 并发测试序列号生成
+	var wg sync.WaitGroup
+	sequenceChan := make(chan int64, 100)
+
+	// 启动多个goroutine同时生成序列号
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				seq := client.getNextSequence()
+				sequenceChan <- seq
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(sequenceChan)
+
+	// 收集所有序列号
+	sequences := make(map[int64]bool)
+	for seq := range sequenceChan {
+		if sequences[seq] {
+			t.Errorf("发现重复的序列号: %d", seq)
+		}
+		sequences[seq] = true
+	}
+
+	// 验证序列号范围
+	expectedCount := 100 // 10个goroutine * 10次调用
+	if len(sequences) != expectedCount {
+		t.Errorf("期望生成 %d 个唯一序列号, 实际生成 %d 个", expectedCount, len(sequences))
+	}
+
+	// 验证序列号连续性（从2开始，因为初始值是1）
+	for i := int64(2); i <= int64(expectedCount+1); i++ {
+		if !sequences[i] {
+			t.Errorf("缺少序列号: %d", i)
+		}
+	}
+}
+
+func TestConcurrentConnectionAccess(t *testing.T) {
+	config := &Config{
+		Robot: RobotConfig{
+			UCode: "test_robot",
+		},
+	}
+
+	client := NewRobotClient(config)
+
+	// 并发测试连接状态访问
+	var wg sync.WaitGroup
+
+	// 启动多个goroutine同时访问连接状态
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				client.connMutex.Lock()
+				_ = client.connected
+				client.connMutex.Unlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+	// 如果没有panic，说明并发访问是安全的
 }

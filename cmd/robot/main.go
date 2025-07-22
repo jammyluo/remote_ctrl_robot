@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,6 +63,10 @@ type RobotClient struct {
 	reconnectAttempts int
 	lastReconnectTime time.Time
 	reconnectTimer    *time.Timer
+
+	// 并发安全
+	connMutex sync.Mutex
+	seqMutex  sync.Mutex
 }
 
 // NewRobotClient 创建新的机器人客户端
@@ -96,20 +101,27 @@ func (r *RobotClient) connect() error {
 	if err != nil {
 		return fmt.Errorf("connect failed: %v", err)
 	}
+
+	r.connMutex.Lock()
 	r.conn = conn
 	r.connected = true
+	r.connMutex.Unlock()
 
 	// 重置重连计数
 	r.reconnectAttempts = 0
 
 	// 设置连接超时
+	r.connMutex.Lock()
 	r.conn.SetReadDeadline(time.Now().Add(r.config.GetReadTimeout()))
 	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
+	r.connMutex.Unlock()
 
 	// 发送注册消息
 	if err := r.sendRegister(); err != nil {
+		r.connMutex.Lock()
 		r.conn.Close()
 		r.connected = false
+		r.connMutex.Unlock()
 		return fmt.Errorf("register failed: %v", err)
 	}
 
@@ -134,7 +146,10 @@ func (r *RobotClient) Stop() {
 		Str("ucode", r.config.Robot.UCode).
 		Msg("Stopping client")
 
+	r.connMutex.Lock()
 	r.connected = false
+	r.connMutex.Unlock()
+
 	close(r.done)
 
 	// 停止重连定时器
@@ -142,9 +157,11 @@ func (r *RobotClient) Stop() {
 		r.reconnectTimer.Stop()
 	}
 
+	r.connMutex.Lock()
 	if r.conn != nil {
 		r.conn.Close()
 	}
+	r.connMutex.Unlock()
 
 	log.Info().
 		Str("ucode", r.config.Robot.UCode).
@@ -251,19 +268,35 @@ func (r *RobotClient) performReconnect() {
 	}
 }
 
+// getNextSequence 获取下一个序列号
+func (r *RobotClient) getNextSequence() int64 {
+	r.seqMutex.Lock()
+	defer r.seqMutex.Unlock()
+	r.sequence++
+	return r.sequence
+}
+
 // sendRegister 发送注册消息
 func (r *RobotClient) sendRegister() error {
 	msg := WebSocketMessage{
 		Type:       WSMessageTypeRequest,
 		Command:    CMD_TYPE_REGISTER,
-		Sequence:   r.sequence,
+		Sequence:   r.getNextSequence(),
 		UCode:      r.config.Robot.UCode,
 		ClientType: ClientTypeRobot,
 		Version:    r.config.Robot.Version,
 		Data:       map[string]interface{}{},
 	}
 
-	r.sequence++
+	r.connMutex.Lock()
+	defer r.connMutex.Unlock()
+
+	if r.conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+
+	// 设置写入超时
+	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
 	return r.conn.WriteJSON(msg)
 }
 
@@ -272,14 +305,22 @@ func (r *RobotClient) sendPing() error {
 	msg := WebSocketMessage{
 		Type:       WSMessageTypeRequest,
 		Command:    CMD_TYPE_PING,
-		Sequence:   r.sequence,
+		Sequence:   r.getNextSequence(),
 		UCode:      r.config.Robot.UCode,
 		ClientType: ClientTypeRobot,
 		Version:    r.config.Robot.Version,
 		Data:       map[string]interface{}{},
 	}
 
-	r.sequence++
+	r.connMutex.Lock()
+	defer r.connMutex.Unlock()
+
+	if r.conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+
+	// 设置写入超时
+	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
 	return r.conn.WriteJSON(msg)
 }
 
@@ -314,14 +355,22 @@ func (r *RobotClient) sendStatusUpdate() error {
 	msg := WebSocketMessage{
 		Type:       WSMessageTypeRequest,
 		Command:    CMD_TYPE_UPDATE_ROBOT_STATUS,
-		Sequence:   r.sequence,
+		Sequence:   r.getNextSequence(),
 		UCode:      r.config.Robot.UCode,
 		ClientType: ClientTypeRobot,
 		Version:    r.config.Robot.Version,
 		Data:       status,
 	}
 
-	r.sequence++
+	r.connMutex.Lock()
+	defer r.connMutex.Unlock()
+
+	if r.conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+
+	// 设置写入超时
+	r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
 	return r.conn.WriteJSON(msg)
 }
 
@@ -332,11 +381,18 @@ func (r *RobotClient) handleMessages() {
 		case <-r.done:
 			return
 		default:
+			r.connMutex.Lock()
+			if r.conn == nil {
+				r.connMutex.Unlock()
+				return
+			}
 			// 设置读取超时
 			r.conn.SetReadDeadline(time.Now().Add(r.config.GetReadTimeout()))
+			r.connMutex.Unlock()
 
 			_, message, err := r.conn.ReadMessage()
 			if err != nil {
+				r.connMutex.Lock()
 				if r.connected {
 					log.Error().
 						Err(err).
@@ -346,9 +402,13 @@ func (r *RobotClient) handleMessages() {
 					// 标记连接断开
 					r.connected = false
 					r.conn.Close()
+					r.conn = nil
+					r.connMutex.Unlock()
 
 					// 安排重连
 					r.scheduleReconnect()
+				} else {
+					r.connMutex.Unlock()
 				}
 				return
 			}
@@ -381,19 +441,25 @@ func (r *RobotClient) keepAlive() {
 		case <-r.done:
 			return
 		case <-ticker.C:
-			if r.connected {
-				// 设置写入超时
-				r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
+			r.connMutex.Lock()
+			connected := r.connected
+			r.connMutex.Unlock()
 
+			if connected {
 				if err := r.sendPing(); err != nil {
 					log.Error().
 						Err(err).
 						Str("ucode", r.config.Robot.UCode).
 						Msg("Send heartbeat failed")
 
+					r.connMutex.Lock()
 					// 标记连接断开
 					r.connected = false
-					r.conn.Close()
+					if r.conn != nil {
+						r.conn.Close()
+						r.conn = nil
+					}
+					r.connMutex.Unlock()
 
 					// 安排重连
 					r.scheduleReconnect()
@@ -417,19 +483,25 @@ func (r *RobotClient) reportStatus() {
 		case <-r.done:
 			return
 		case <-ticker.C:
-			if r.connected {
-				// 设置写入超时
-				r.conn.SetWriteDeadline(time.Now().Add(r.config.GetWriteTimeout()))
+			r.connMutex.Lock()
+			connected := r.connected
+			r.connMutex.Unlock()
 
+			if connected {
 				if err := r.sendStatusUpdate(); err != nil {
 					log.Error().
 						Err(err).
 						Str("ucode", r.config.Robot.UCode).
 						Msg("Send status update failed")
 
+					r.connMutex.Lock()
 					// 标记连接断开
 					r.connected = false
-					r.conn.Close()
+					if r.conn != nil {
+						r.conn.Close()
+						r.conn = nil
+					}
+					r.connMutex.Unlock()
 
 					// 安排重连
 					r.scheduleReconnect()
