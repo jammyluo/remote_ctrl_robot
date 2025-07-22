@@ -640,7 +640,7 @@
                 wsUrl = `${wsProtocol}//${host}:${port}/ws/control`;
             }
             
-            console.log('尝试连接WebSocket:', wsUrl);
+            console.log(new Date().toISOString(), '尝试连接WebSocket:', wsUrl);
             updateConnectionStatus('正在连接...', false, true);
             
             try {
@@ -659,7 +659,7 @@
                     clearTimeout(connectionTimeout);
                     isConnected = true;
                     updateConnectionStatus('已连接', true);
-                    console.log('WebSocket连接成功');
+                    console.log(new Date().toISOString(), 'WebSocket连接成功');
                     
                     // 启动心跳
                     startHeartbeat();
@@ -709,7 +709,7 @@
                     clearTimeout(connectionTimeout);
                     isConnected = false;
                     isRegistered = false;
-                    console.log('WebSocket连接关闭:', event.code, event.reason);
+                    console.log(new Date().toISOString(),'WebSocket连接关闭:', event.code, event.reason);
                     
                     // 停止心跳
                     stopHeartbeat();
@@ -721,7 +721,7 @@
                         // 自动重连机制
                         setTimeout(() => {
                             if (!isConnected) {
-                                console.log('尝试重新连接...');
+                                console.log(new Date().toISOString(),'尝试重新连接...');
                                 // 重新连接时使用相同的服务器地址
                                 const serverUrl = document.getElementById('serverUrl').value;
                                 connectAndRegister(robotUCode, operatorId, serverUrl);
@@ -751,7 +751,7 @@
                 } else if (message.command === 'CMD_REGISTER' && message.data && message.data.success) {
                     updateConnectionStatus('已连接并注册', true);
                 } else if (message.command === 'CMD_CONTROL_ROBOT' && message.data && message.data.success) {
-                    console.log('控制响应: ' + JSON.stringify(message.data));
+                    console.log(new Date().toISOString(),'控制响应: ' + JSON.stringify(message.data));
                 } else if (message.command === 'CMD_PING' && message.data && message.data.success) {
                     // 处理心跳响应
                     handlePongResponse();
@@ -766,7 +766,7 @@
             if (heartbeatEnabled) return;
             
             heartbeatEnabled = true;
-            console.log('启动心跳机制');
+            console.log(new Date().toISOString(),'启动心跳机制');
             
             // 每10秒发送一次心跳
             heartbeatInterval = setInterval(() => {
@@ -790,7 +790,7 @@
                 heartbeatTimeout = null;
             }
             
-            console.log('停止心跳机制');
+            console.log(new Date().toISOString(),'停止心跳机制');
         }
         
         // 发送心跳
@@ -813,16 +813,16 @@
             
             try {
                 ws.send(JSON.stringify(heartbeatMessage));
-                console.log('发送心跳包');
+                console.log(new Date().toISOString(), '发送心跳包');
                 
                 // 设置心跳超时检测
                 heartbeatTimeout = setTimeout(() => {
-                    console.warn('心跳超时，连接可能已断开');
+                    console.warn(new Date().toISOString(), '心跳超时，连接可能已断开');
                     handleHeartbeatTimeout();
                 }, 10000); // 10秒超时
                 
             } catch (error) {
-                console.error('发送心跳失败:', error);
+                console.error(new Date().toISOString(), '发送心跳失败:', error);
                 handleConnectionError();
             }
         }
@@ -838,7 +838,7 @@
             const now = Date.now();
             connectionLatency = now - lastPingTime;
             
-            console.log(`心跳响应，延迟: ${connectionLatency}ms`);
+            console.log(new Date().toISOString(), `心跳响应，延迟: ${connectionLatency}ms`);
             
             // 更新连接状态显示延迟信息
             if (isConnected) {
@@ -848,7 +848,7 @@
         
         // 处理心跳超时
         function handleHeartbeatTimeout() {
-            console.error('心跳超时，连接可能已断开');
+            console.error(new Date().toISOString(), '心跳超时，连接可能已断开');
             updateConnectionStatus('连接超时', false);
             
             // 尝试重新连接
@@ -863,7 +863,7 @@
                 
                 setTimeout(() => {
                     if (!isConnected) {
-                        console.log('心跳超时，尝试重新连接...');
+                        console.log(new Date().toISOString(), '心跳超时，尝试重新连接...');
                         connectAndRegister(robotUCode, operatorId, serverUrl);
                     }
                 }, 2000);
