@@ -5,6 +5,7 @@ robot:
   ucode: "123456"                    # 机器人唯一标识
   version: "1.0.0"                      # 版本号
   client_type: "robot"                  # 客户端类型
+  operator_type: "remote"              # 机器人模型, 远程控制， 遥控器控制 TODO
 
 # 服务器配置
 websocket:
