@@ -1,7 +1,6 @@
 package robot
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -64,22 +63,51 @@ func (r *SimpleRobot) Stop() error {
 func (r *SimpleRobot) HandleMessage(msg *models.WebSocketMessage) error {
 	log.Info().
 		Str("ucode", r.config.Robot.UCode).
+		Str("command", string(msg.Command)).
 		Msg("HandleMessage")
-	if msg.Command == models.CMD_TYPE_CONTROL_ROBOT {
-		controlRobot := models.CMD_CONTROL_ROBOT{}
-		if err := json.Unmarshal([]byte(msg.Data.(string)), &controlRobot); err != nil {
-			return fmt.Errorf("parse message failed: %v", err)
-		}
 
-		if controlRobot.Action == "shoot" {
-			log.Info().
+	if msg.Command == models.CMD_TYPE_CONTROL_ROBOT {
+		// 处理控制机器人命令
+		if data, ok := msg.Data.(map[string]interface{}); ok {
+			if action, exists := data["action"].(string); exists {
+				switch action {
+				case "shoot":
+					log.Info().
+						Str("ucode", r.config.Robot.UCode).
+						Msg("Shoot command received")
+					// 创建GPIO控制器并演示高低电平控制
+					gpioCtrl := gpio.NewGPIOController(27)
+					gpioCtrl.Pulse(time.Millisecond * time.Duration(70))
+				case "move":
+					log.Info().
+						Str("ucode", r.config.Robot.UCode).
+						Msg("Move command received")
+					// 处理移动命令
+					if direction, exists := data["direction"].(string); exists {
+						log.Info().
+							Str("ucode", r.config.Robot.UCode).
+							Str("direction", direction).
+							Msg("Moving robot")
+					}
+				case "stop":
+					log.Info().
+						Str("ucode", r.config.Robot.UCode).
+						Msg("Stop command received")
+					// 处理停止命令
+				default:
+					log.Warn().
+						Str("ucode", r.config.Robot.UCode).
+						Str("action", action).
+						Msg("Unknown action")
+				}
+			}
+		} else {
+			log.Error().
 				Str("ucode", r.config.Robot.UCode).
-				Msg("Shoot")
-			// 创建GPIO控制器并演示高低电平控制
-			gpioCtrl := gpio.NewGPIOController(27)
-			gpioCtrl.Pulse(time.Millisecond * time.Duration(70))
+				Msg("Invalid data format for control command")
 		}
 	}
+
 	return nil
 }
 
