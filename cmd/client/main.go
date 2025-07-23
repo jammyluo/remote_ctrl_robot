@@ -11,12 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"remote-ctrl-robot/cmd/client/config"
 	"remote-ctrl-robot/cmd/client/robot"
-	"remote-ctrl-robot/internal/services"
 	"remote-ctrl-robot/internal/models"
+	"remote-ctrl-robot/internal/services"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // RobotClient 极简机器人客户端
@@ -50,7 +51,6 @@ func NewRobotClient(config *config.Config) *RobotClient {
 		client.OnError,      // 错误处理回调
 	)
 
-
 	return client
 }
 
@@ -60,7 +60,6 @@ func (r *RobotClient) Start() error {
 		Str("ucode", r.config.Robot.UCode).
 		Str("server", r.config.WebSocket.URL).
 		Msg("Starting robot client")
-
 
 	// 启动WebSocket服务
 	return r.wsService.Start()
@@ -122,18 +121,12 @@ func (r *RobotClient) OnMessage(message []byte) error {
 		Int64("sequence", msg.Sequence).
 		Msg("Received message")
 
-	if msg.Command == models.CMD_TYPE_CONTROL_ROBOT {
-		log.Info().
+	err := r.robot.HandleMessage(&msg)
+	if err != nil {
+		log.Error().
+			Err(err).
 			Str("ucode", r.config.Robot.UCode).
-			Msg("Robot control!!!!!!")
-
-		// 创建GPIO控制器并启动蜂鸣器模式
-		gpioCtrl := robot.NewGPIOController(27)
-		gpioCtrl.BuzzerOn()
-		time.Sleep(time.Second)
-		gpioCtrl.BuzzerOff()
-		time.Sleep(time.Second)
-		gpioCtrl.Cleanup()
+			Msg("Handle message failed")
 	}
 
 	return nil
@@ -337,7 +330,7 @@ func main() {
 
 	// 创建机器人客户端
 	client := NewRobotClient(config)
-	
+
 	// 启动客户端
 	if err := client.Start(); err != nil {
 		log.Fatal().

@@ -4,12 +4,6 @@
 
 echo "🤖 启动远程控制机器人服务器..."
 
-# 检查Go是否安装
-if ! command -v go &> /dev/null; then
-    echo "❌ 错误: Go未安装，请先安装Go 1.21+"
-    exit 1
-fi
-
 # 检查Go版本
 GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
 if [[ $(echo "$GO_VERSION 1.21" | tr " " "\n" | sort -V | head -n 1) != "1.21" ]]; then

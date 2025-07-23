@@ -28,16 +28,10 @@ echo "🔨 构建x86_64版本客户端..."
 go build -o robot-client cmd/client/main.go 
 
 # 编译ARM64版本
-echo "🔨 编译ARM64版本服务端..."
-GOOS=linux GOARCH=arm64 go build -o server-arm64 cmd/server/main.go
-
 echo "🔨 构建ARM64版本客户端..."
 GOOS=linux GOARCH=arm64 go build -o robot-client-arm64 cmd/client/main.go
 
 # 编译ARM32版本
-echo "🔨 编译ARM32版本服务端..."
-GOOS=linux GOARCH=arm go build -o server-arm cmd/server/main.go
-
 echo "🔨 构建ARM32版本客户端..."
 GOOS=linux GOARCH=arm go build -o robot-client-arm cmd/client/main.go
 

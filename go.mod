@@ -6,8 +6,9 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/rs/zerolog v1.31.0
 	github.com/spf13/viper v1.18.2
-	github.com/warthog618/go-gpiocdev v0.9.1
 	gopkg.in/yaml.v3 v3.0.1
+	periph.io/x/conn/v3 v3.7.0
+	periph.io/x/host/v3 v3.8.2
 )
 
 require (

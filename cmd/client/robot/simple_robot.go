@@ -1,9 +1,14 @@
 package robot
 
 import (
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"remote-ctrl-robot/cmd/client/config"
+	"remote-ctrl-robot/internal/gpio"
+	"remote-ctrl-robot/internal/models"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -56,30 +61,25 @@ func (r *SimpleRobot) Stop() error {
 }
 
 // HandleMessage 处理接收到的消息
-func (r *SimpleRobot) HandleMessage(message []byte) error {
-	// var msg WebSocketMessage
-	// if err := json.Unmarshal(message, &msg); err != nil {
-	// 	return fmt.Errorf("parse message failed: %v", err)
-	// }
+func (r *SimpleRobot) HandleMessage(msg *models.WebSocketMessage) error {
+	log.Info().
+		Str("ucode", r.config.Robot.UCode).
+		Msg("HandleMessage")
+	if msg.Command == models.CMD_TYPE_CONTROL_ROBOT {
+		controlRobot := models.CMD_CONTROL_ROBOT{}
+		if err := json.Unmarshal([]byte(msg.Data.(string)), &controlRobot); err != nil {
+			return fmt.Errorf("parse message failed: %v", err)
+		}
 
-	// log.Debug().
-	// 	Str("ucode", r.config.Robot.UCode).
-	// 	Str("command", string(msg.Command)).
-	// 	Int64("sequence", msg.Sequence).
-	// 	Msg("Received message")
-
-	// // 根据命令类型处理消息
-	// switch msg.Command {
-	// case CMD_TYPE_PING:
-	// 	// 心跳消息，无需特殊处理
-	// 	return nil
-	// default:
-	// 	log.Debug().
-	// 		Str("ucode", r.config.Robot.UCode).
-	// 		Str("command", string(msg.Command)).
-	// 		Msg("Unknown command, ignoring")
-	// 	return nil
-	// }
+		if controlRobot.Action == "shoot" {
+			log.Info().
+				Str("ucode", r.config.Robot.UCode).
+				Msg("Shoot")
+			// 创建GPIO控制器并演示高低电平控制
+			gpioCtrl := gpio.NewGPIOController(27)
+			gpioCtrl.Pulse(time.Millisecond * time.Duration(70))
+		}
+	}
 	return nil
 }
 

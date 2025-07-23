@@ -2,6 +2,7 @@ package robot
 
 import (
 	"remote-ctrl-robot/cmd/client/config"
+	"remote-ctrl-robot/internal/models"
 	"sync"
 )
 
@@ -16,7 +17,6 @@ type RobotState struct {
 	ErrorMessage    string     `json:"error_message"`
 }
 
-
 // RobotInterface 机器人接口定义
 type RobotInterface interface {
 	// 基础生命周期方法
@@ -25,7 +25,7 @@ type RobotInterface interface {
 	IsRunning() bool
 
 	// 消息处理方法
-	HandleMessage(message []byte) error
+	HandleMessage(msg *models.WebSocketMessage) error
 
 	// 状态获取方法
 	GetRobotState() RobotState
@@ -44,11 +44,10 @@ type RobotInterface interface {
 	GetStats() map[string]interface{}
 }
 
-
 // BaseRobotClient 基础机器人客户端实现
 type BaseRobotClient struct {
-	config    *config.Config
-	done      chan struct{}
+	config *config.Config
+	done   chan struct{}
 
 	// 并发安全
 	seqMutex sync.Mutex
@@ -83,6 +82,6 @@ func (r *BaseRobotClient) IsRunning() bool {
 // GetStats 获取基础统计信息
 func (r *BaseRobotClient) GetStats() map[string]interface{} {
 	return map[string]interface{}{
-		"ucode":    r.config.Robot.UCode,
+		"ucode": r.config.Robot.UCode,
 	}
-} 
+}
