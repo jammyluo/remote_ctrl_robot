@@ -1,0 +1,89 @@
+{
+  "register_message": {
+    "type": "Request",
+    "command": "CMD_REGISTER",
+    "sequence": 1,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {}
+  },
+  "ping_message": {
+    "type": "Request",
+    "command": "CMD_PING",
+    "sequence": 2,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {}
+  },
+  "status_update_message": {
+    "type": "Request",
+    "command": "CMD_UPDATE_ROBOT_STATUS",
+    "sequence": 3,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {
+      "base_position": [0.0, 0.0, 0.0],
+      "base_orientation": [0.0, 0.0, 0.0, 1.0],
+      "battery_level": 85.5,
+      "temperature": 25.0,
+      "status": "idle",
+      "error_code": 0,
+      "error_message": ""
+    }
+  },
+  "control_message": {
+    "type": "Request",
+    "command": "CMD_CONTROL_ROBOT",
+    "sequence": 4,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {
+      "action": "move",
+      "param_maps": {
+        "direction": "forward",
+        "speed": "50"
+      },
+      "timestamp": 1640995200
+    }
+  },
+  "bind_message": {
+    "type": "Request",
+    "command": "CMD_BIND_ROBOT",
+    "sequence": 5,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {
+      "operator_id": "test_operator_001"
+    }
+  },
+  "success_response": {
+    "type": "Response",
+    "command": "CMD_REGISTER",
+    "sequence": 1,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {
+      "success": true,
+      "message": "Registration successful"
+    }
+  },
+  "error_response": {
+    "type": "Response",
+    "command": "CMD_REGISTER",
+    "sequence": 1,
+    "ucode": "test_robot_001",
+    "client_type": "robot",
+    "version": "1.0.0",
+    "data": {
+      "success": false,
+      "message": "Registration failed",
+      "error_code": 1001
+    }
+  }
+} 

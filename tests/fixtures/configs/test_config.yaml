@@ -1,0 +1,44 @@
+# 测试配置文件
+# 用于单元测试和集成测试
+
+# 机器人配置
+robot:
+  ucode: "test_robot_001"
+  name: "测试机器人"
+  version: "1.0.0"
+  client_type: "robot"
+
+# WebSocket配置
+websocket:
+  url: "ws://localhost:8000/ws/control"
+  read_timeout: 30s
+  write_timeout: 10s
+  ping_interval: 30s
+  pong_wait: 60s
+  max_reconnect_attempts: 5
+  reconnect_delay: 5s
+
+# 服务器配置
+server:
+  host: "localhost"
+  port: 8000
+  read_timeout: 30s
+  write_timeout: 10s
+  max_connections: 100
+
+# 日志配置
+logging:
+  level: "debug"
+  format: "console"
+  output: "stdout"
+
+# 状态配置
+status:
+  enable_simulation: true
+  update_interval: 5s
+
+# GPIO配置
+gpio:
+  buzzer_pin: 18
+  led_pin: 17
+  motor_pin: 27 

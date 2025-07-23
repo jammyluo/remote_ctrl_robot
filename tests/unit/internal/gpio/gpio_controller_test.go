@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"remote-ctrl-robot/internal/gpio"
+
 	"github.com/rs/zerolog"
 )
 
@@ -13,22 +15,24 @@ func init() {
 }
 
 func TestNewGPIOController(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 	if controller == nil {
 		t.Fatal("NewGPIOController should not return nil")
 	}
 
-	if controller.pinNum != 18 {
-		t.Errorf("期望 pinNum 为 18, 实际为 %d", controller.pinNum)
+	// 使用GetStatus方法获取状态
+	status := controller.GetStatus()
+	if status["pin_num"] != 18 {
+		t.Errorf("期望 pin_num 为 18, 实际为 %v", status["pin_num"])
 	}
 
-	if controller.exported {
+	if status["exported"] != false {
 		t.Error("期望 exported 为 false")
 	}
 }
 
 func TestGPIOControllerGetStatus(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 	status := controller.GetStatus()
 
 	if status["pin_num"] != 18 {
@@ -45,7 +49,7 @@ func TestGPIOControllerGetStatus(t *testing.T) {
 }
 
 func TestGPIOControllerSetHighLow(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试设置高电平
 	err := controller.SetHigh()
@@ -69,7 +73,7 @@ func TestGPIOControllerSetHighLow(t *testing.T) {
 }
 
 func TestGPIOControllerSetValue(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试设置值为1（高电平）
 	err := controller.SetValue(1)
@@ -95,7 +99,7 @@ func TestGPIOControllerSetValue(t *testing.T) {
 }
 
 func TestGPIOControllerToggle(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试切换功能
 	err := controller.Toggle()
@@ -109,7 +113,7 @@ func TestGPIOControllerToggle(t *testing.T) {
 }
 
 func TestGPIOControllerPulse(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试脉冲功能
 	err := controller.Pulse(100 * time.Millisecond)
@@ -123,7 +127,7 @@ func TestGPIOControllerPulse(t *testing.T) {
 }
 
 func TestGPIOControllerBlink(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试闪烁功能（3次闪烁，每次间隔200ms）
 	err := controller.Blink(200*time.Millisecond, 3)
@@ -137,7 +141,7 @@ func TestGPIOControllerBlink(t *testing.T) {
 }
 
 func TestGPIOControllerGetLevel(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试获取电平（在未导出状态下）
 	level, err := controller.GetLevel()
@@ -165,7 +169,7 @@ func TestGPIOControllerGetLevel(t *testing.T) {
 }
 
 func TestGPIOControllerCleanup(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试清理功能
 	err := controller.Cleanup()
@@ -181,7 +185,7 @@ func TestGPIOControllerCleanup(t *testing.T) {
 }
 
 func TestGPIOControllerConcurrentAccess(t *testing.T) {
-	controller := NewGPIOController(18)
+	controller := gpio.NewGPIOController(18)
 
 	// 测试并发访问
 	done := make(chan bool, 2)
