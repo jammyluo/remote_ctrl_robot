@@ -41,9 +41,14 @@ func NewAPIServer(client *Client, port int) *APIServer {
 func (api *APIServer) Start() error {
 	mux := http.NewServeMux()
 
-	// 注册路由
-	mux.HandleFunc("/api/v1/name", api.handleName)
-	mux.HandleFunc("/api/v1/status", api.handleStatus)
+	// 射击
+	mux.HandleFunc("/api/v1/shoot", api.handleShoot)
+	// 获取弹药数量
+	mux.HandleFunc("/api/v1/ammo", api.handleAmmo)
+	// 更换弹药
+	mux.HandleFunc("/api/v1/ammo/change", api.handleAmmoChange)
+	// 获取生命值
+	mux.HandleFunc("/api/v1/health", api.handleHealth)
 
 	api.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", api.port),
@@ -66,65 +71,28 @@ func (api *APIServer) Stop() error {
 	return nil
 }
 
-// handleName 处理名称相关请求
-func (api *APIServer) handleName(w http.ResponseWriter, r *http.Request) {
+// handleShoot 处理射击请求
+func (api *APIServer) handleShoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	switch r.Method {
-	case "GET":
-		api.handleGetName(w, r)
-	case "POST":
-		api.handleSetName(w, r)
-	default:
+	if r.Method != "POST" {
 		api.sendErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
-	}
-}
-
-// handleGetName 处理获取名称请求
-func (api *APIServer) handleGetName(w http.ResponseWriter, r *http.Request) {
-	api.mutex.RLock()
-	defer api.mutex.RUnlock()
-
-	response := APIResponse{
-		Success: true,
-		Message: "获取名称成功",
-		Data: map[string]string{
-			"name": "test",
-		},
-	}
-
-	api.sendResponse(w, http.StatusOK, response)
-}
-
-// handleSetName 处理设置名称请求
-func (api *APIServer) handleSetName(w http.ResponseWriter, r *http.Request) {
-	var req NameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.sendErrorResponse(w, http.StatusBadRequest, "无效的请求格式")
 		return
 	}
 
-	if req.Name == "" {
-		api.sendErrorResponse(w, http.StatusBadRequest, "名称不能为空")
+	err := api.client.robot.Shoot()
+	if err != nil {
+		api.sendErrorResponse(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	api.mutex.Lock()
-	defer api.mutex.Unlock()
-
-	response := APIResponse{
-		Success: true,
-		Message: "设置名称成功",
-		Data: map[string]string{
-			"name": req.Name,
-		},
-	}
-
-	api.sendResponse(w, http.StatusOK, response)
+	api.sendSuccessResponse(w, http.StatusOK, "Success")
 }
 
-// handleStatus 处理状态查询请求
-func (api *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
+// handleAmmo 处理弹药查询请求
+func (api *APIServer) handleAmmo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if r.Method != "GET" {
 		api.sendErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
@@ -135,8 +103,36 @@ func (api *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	response := APIResponse{
 		Success: true,
-		Message: "获取状态成功",
-		Data:    nil,
+		Message: "Success",
+		Data:    api.client.robot.GetAmmo(),
+	}
+
+	api.sendResponse(w, http.StatusOK, response)
+}
+
+// handleAmmoChange 处理更换弹药请求
+func (api *APIServer) handleAmmoChange(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		api.sendErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	api.client.robot.AmmoChange()
+
+	api.sendSuccessResponse(w, http.StatusOK, "Success")
+}
+
+// handleHealth 处理生命值查询请求
+func (api *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	response := APIResponse{
+		Success: true,
+		Message: "Success",
+		Data: map[string]int{
+			"health": api.client.robot.GetHealth(),
+		},
 	}
 
 	api.sendResponse(w, http.StatusOK, response)
@@ -146,6 +142,16 @@ func (api *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (api *APIServer) sendResponse(w http.ResponseWriter, statusCode int, response APIResponse) {
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(response)
+}
+
+// sendSuccessResponse 发送成功响应
+func (api *APIServer) sendSuccessResponse(w http.ResponseWriter, statusCode int, message string) {
+	response := APIResponse{
+		Success: true,
+		Message: message,
+	}
+
+	api.sendResponse(w, statusCode, response)
 }
 
 // sendErrorResponse 发送错误响应

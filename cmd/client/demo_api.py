@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 机器人客户端API演示脚本
-演示如何使用HTTP API接口
+演示如何使用HTTP API接口控制机器人
 """
 
 import requests
@@ -28,41 +28,40 @@ def print_response(response, title):
     print()
 
 def test_health():
-    """测试健康检查"""
+    """测试生命值查询"""
     try:
         response = requests.get(f"{BASE_URL}/health")
-        print_response(response, "健康检查")
+        print_response(response, "生命值查询")
         return response.status_code == 200
     except requests.exceptions.ConnectionError:
         print("❌ 无法连接到API服务器，请确保机器人客户端正在运行")
         return False
 
-def test_get_name():
-    """测试获取名称"""
+def test_shoot():
+    """测试射击"""
     try:
-        response = requests.get(f"{BASE_URL}/name")
-        print_response(response, "获取名称")
+        response = requests.post(f"{BASE_URL}/shoot")
+        print_response(response, "执行射击")
         return response.status_code == 200
     except requests.exceptions.ConnectionError:
         print("❌ 无法连接到API服务器")
         return False
 
-def test_set_name(name):
-    """测试设置名称"""
+def test_get_ammo():
+    """测试获取弹药数量"""
     try:
-        data = {"name": name}
-        response = requests.post(f"{BASE_URL}/name", json=data)
-        print_response(response, f"设置名称: {name}")
+        response = requests.get(f"{BASE_URL}/ammo")
+        print_response(response, "弹药数量查询")
         return response.status_code == 200
     except requests.exceptions.ConnectionError:
         print("❌ 无法连接到API服务器")
         return False
 
-def test_get_status():
-    """测试获取状态"""
+def test_change_ammo():
+    """测试更换弹药"""
     try:
-        response = requests.get(f"{BASE_URL}/status")
-        print_response(response, "获取状态")
+        response = requests.post(f"{BASE_URL}/ammo/change")
+        print_response(response, "更换弹药")
         return response.status_code == 200
     except requests.exceptions.ConnectionError:
         print("❌ 无法连接到API服务器")
@@ -74,34 +73,62 @@ def test_invalid_requests():
     print(" 测试无效请求")
     print(f"{'='*50}")
     
-    # 测试空名称
-    try:
-        data = {"name": ""}
-        response = requests.post(f"{BASE_URL}/name", json=data)
-        print(f"空名称测试 - 状态码: {response.status_code}")
-        print(f"响应: {response.json()}")
-    except Exception as e:
-        print(f"空名称测试失败: {e}")
-    
-    # 测试无效JSON
-    try:
-        response = requests.post(f"{BASE_URL}/name", 
-                               data="invalid json",
-                               headers={"Content-Type": "application/json"})
-        print(f"无效JSON测试 - 状态码: {response.status_code}")
-        print(f"响应: {response.json()}")
-    except Exception as e:
-        print(f"无效JSON测试失败: {e}")
-    
     # 测试不支持的方法
     try:
-        response = requests.put(f"{BASE_URL}/name")
-        print(f"不支持方法测试 - 状态码: {response.status_code}")
+        response = requests.get(f"{BASE_URL}/shoot")
+        print(f"射击接口GET方法测试 - 状态码: {response.status_code}")
         print(f"响应: {response.json()}")
     except Exception as e:
-        print(f"不支持方法测试失败: {e}")
+        print(f"射击接口GET方法测试失败: {e}")
+    
+    # 测试不存在的接口
+    try:
+        response = requests.get(f"{BASE_URL}/nonexistent")
+        print(f"不存在接口测试 - 状态码: {response.status_code}")
+        print(f"响应: {response.text}")
+    except Exception as e:
+        print(f"不存在接口测试失败: {e}")
+    
+    # 测试错误的请求方法
+    try:
+        response = requests.put(f"{BASE_URL}/ammo")
+        print(f"弹药接口PUT方法测试 - 状态码: {response.status_code}")
+        print(f"响应: {response.json()}")
+    except Exception as e:
+        print(f"弹药接口PUT方法测试失败: {e}")
     
     print()
+
+def test_robot_sequence():
+    """测试机器人操作序列"""
+    print(f"\n{'='*50}")
+    print(" 机器人操作序列测试")
+    print(f"{'='*50}")
+    
+    print("1. 查询初始状态...")
+    test_get_ammo()
+    test_health()
+    
+    print("2. 执行射击操作...")
+    for i in range(3):
+        print(f"   第{i+1}次射击:")
+        test_shoot()
+        time.sleep(1)  # 等待1秒
+    
+    print("3. 查询射击后状态...")
+    test_get_ammo()
+    test_health()
+    
+    print("4. 更换弹药...")
+    test_change_ammo()
+    
+    print("5. 查询更换后状态...")
+    test_get_ammo()
+    test_health()
+    
+    print("6. 再次射击测试...")
+    test_shoot()
+    test_get_ammo()
 
 def interactive_mode():
     """交互模式"""
@@ -118,23 +145,27 @@ def interactive_mode():
                 break
             elif command == 'help':
                 print("可用命令:")
-                print("  health    - 健康检查")
-                print("  name      - 获取名称")
-                print("  status    - 获取状态")
-                print("  set <name> - 设置名称")
-                print("  quit      - 退出")
+                print("  health     - 查询生命值")
+                print("  ammo       - 查询弹药数量")
+                print("  shoot      - 执行射击")
+                print("  change     - 更换弹药")
+                print("  sequence   - 执行操作序列")
+                print("  status     - 查询完整状态")
+                print("  quit       - 退出")
             elif command == 'health':
                 test_health()
-            elif command == 'name':
-                test_get_name()
+            elif command == 'ammo':
+                test_get_ammo()
+            elif command == 'shoot':
+                test_shoot()
+            elif command == 'change':
+                test_change_ammo()
+            elif command == 'sequence':
+                test_robot_sequence()
             elif command == 'status':
-                test_get_status()
-            elif command.startswith('set '):
-                name = command[4:].strip()
-                if name:
-                    test_set_name(name)
-                else:
-                    print("❌ 请提供名称")
+                print("查询完整状态...")
+                test_health()
+                test_get_ammo()
             else:
                 print("❌ 未知命令，输入 'help' 查看可用命令")
                 
@@ -148,6 +179,7 @@ def main():
     """主函数"""
     print("🤖 机器人客户端API演示")
     print(f"API地址: {BASE_URL}")
+    print("功能: 射击、弹药管理、生命值查询")
     
     # 检查服务是否可用
     if not test_health():
@@ -160,13 +192,23 @@ def main():
     # 运行基本测试
     print("\n🚀 开始基本测试...")
     
-    test_get_name()
-    test_set_name("Python测试机器人")
-    test_get_name()
-    test_set_name("我的智能机器人")
-    test_get_name()
-    test_get_status()
+    # 测试所有接口
+    test_get_ammo()
+    test_health()
+    test_shoot()
+    test_change_ammo()
+    
+    # 测试无效请求
     test_invalid_requests()
+    
+    # 询问是否执行操作序列
+    try:
+        choice = input("\n是否执行机器人操作序列测试? (y/n): ").strip().lower()
+        if choice in ['y', 'yes', '是']:
+            test_robot_sequence()
+    except KeyboardInterrupt:
+        print("\n👋 再见!")
+        return
     
     # 询问是否进入交互模式
     try:

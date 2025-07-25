@@ -8,13 +8,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type MockRobotConfig struct {
+	AmmoCount    int `yaml:"ammo_count"`
+	AmmoCapacity int `yaml:"ammo_capacity"`
+	Health       int `yaml:"health"`
+}
+
 // Config 配置结构
 type Config struct {
-	Robot       RobotConfig       `yaml:"robot"`
-	WebSocket   WebSocketConfig   `yaml:"websocket"`
-	Heartbeat   HeartbeatConfig   `yaml:"heartbeat"`
-	Status      StatusConfig      `yaml:"status"`
-	Logging     LoggingConfig     `yaml:"logging"`
+	Robot     RobotConfig     `yaml:"robot"`
+	WebSocket WebSocketConfig `yaml:"websocket"`
+	Heartbeat HeartbeatConfig `yaml:"heartbeat"`
+	Status    StatusConfig    `yaml:"status"`
+	Logging   LoggingConfig   `yaml:"logging"`
+	MockRobot MockRobotConfig `yaml:"mock_robot"`
+	API       APIConfig       `yaml:"api"`
 }
 
 // RobotConfig 机器人配置
@@ -25,8 +33,15 @@ type RobotConfig struct {
 	ClientType string `yaml:"client_type"`
 }
 
+// APIConfig API配置
+type APIConfig struct {
+	Enable bool `yaml:"enable"`
+	Port   int  `yaml:"port"`
+}
+
 // ServerConfig 服务器配置
 type WebSocketConfig struct {
+	Enable         bool   `yaml:"enable"`
 	URL            string `yaml:"url"`
 	ConnectTimeout int    `yaml:"connect_timeout"`
 	ReadTimeout    int    `yaml:"read_timeout"`
@@ -196,7 +211,6 @@ func (c *Config) applyEnvOverrides() {
 			c.Status.Interval = val
 		}
 	}
-
 
 }
 

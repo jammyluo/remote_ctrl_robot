@@ -2,7 +2,7 @@
 
 ## 概述
 
-为`cmd/client`实现了简化的HTTP API接口，提供了查询名称、设置名称、状态查询和健康检查功能。
+为`cmd/client`实现了机器人控制的HTTP API接口，提供了射击、弹药管理、生命值查询等功能。
 
 ## 实现内容
 
@@ -10,7 +10,7 @@
 
 | 文件 | 功能 | 状态 |
 |------|------|------|
-| `api_server.go` | HTTP API服务器实现 | ✅ 完成 |
+| `api/api_server.go` | HTTP API服务器实现 | ✅ 完成 |
 | `main.go` | 集成API服务器到主程序 | ✅ 完成 |
 | `test_api.sh` | Shell测试脚本 | ✅ 完成 |
 | `demo_api.py` | Python演示脚本 | ✅ 完成 |
@@ -20,10 +20,10 @@
 
 | 接口 | 方法 | 功能 | 状态 |
 |------|------|------|------|
-| `/api/v1/health` | GET | 健康检查 | ✅ 完成 |
-| `/api/v1/name` | GET | 查询名称 | ✅ 完成 |
-| `/api/v1/name` | POST | 设置名称 | ✅ 完成 |
-| `/api/v1/status` | GET | 获取状态 | ✅ 完成 |
+| `/api/v1/shoot` | POST | 执行射击 | ✅ 完成 |
+| `/api/v1/ammo` | GET | 查询弹药数量 | ✅ 完成 |
+| `/api/v1/ammo/change` | POST | 更换弹药 | ✅ 完成 |
+| `/api/v1/health` | GET | 查询生命值 | ✅ 完成 |
 
 ### 3. 技术特性
 
@@ -43,7 +43,7 @@
   "success": true/false,
   "message": "操作结果描述",
   "data": {
-    // 具体数据
+    // 具体数据（可选）
   }
 }
 ```
@@ -61,19 +61,17 @@ go build -o robot_client .
 
 ### 2. 使用curl测试
 ```bash
-# 健康检查
+# 执行射击
+curl -X POST http://localhost:8080/api/v1/shoot
+
+# 查询弹药数量
+curl http://localhost:8080/api/v1/ammo
+
+# 更换弹药
+curl -X POST http://localhost:8080/api/v1/ammo/change
+
+# 查询生命值
 curl http://localhost:8080/api/v1/health
-
-# 获取名称
-curl http://localhost:8080/api/v1/name
-
-# 设置名称
-curl -X POST http://localhost:8080/api/v1/name \
-  -H "Content-Type: application/json" \
-  -d '{"name": "我的机器人"}'
-
-# 获取状态
-curl http://localhost:8080/api/v1/status
 ```
 
 ### 3. 使用测试脚本
@@ -90,7 +88,7 @@ python3 demo_api.py
 ### APIServer结构
 ```go
 type APIServer struct {
-    client *RobotClient
+    client *Client
     port   int
     server *http.Server
     mutex  sync.RWMutex
@@ -101,14 +99,24 @@ type APIServer struct {
 - `NewAPIServer()` - 创建API服务器
 - `Start()` - 启动HTTP服务
 - `Stop()` - 停止HTTP服务
-- `handleName()` - 处理名称相关请求
-- `handleStatus()` - 处理状态查询
-- `handleHealth()` - 处理健康检查
+- `handleShoot()` - 处理射击请求
+- `handleAmmo()` - 处理弹药查询
+- `handleAmmoChange()` - 处理弹药更换
+- `handleHealth()` - 处理生命值查询
+
+### 响应结构
+```go
+type APIResponse struct {
+    Success bool        `json:"success"`
+    Message string      `json:"message"`
+    Data    interface{} `json:"data,omitempty"`
+}
+```
 
 ### 集成方式
 ```go
-// 在RobotClient中集成
-type RobotClient struct {
+// 在Client中集成
+type Client struct {
     config    *config.Config
     wsService *services.WebSocketClient
     robot     robot.RobotInterface
@@ -119,18 +127,71 @@ type RobotClient struct {
 }
 ```
 
+## API接口详细说明
+
+### 1. 射击接口
+- **路径**: `/api/v1/shoot`
+- **方法**: POST
+- **功能**: 执行机器人射击操作
+- **响应**: 
+  ```json
+  {
+    "success": true,
+    "message": "Success"
+  }
+  ```
+
+### 2. 弹药查询接口
+- **路径**: `/api/v1/ammo`
+- **方法**: GET
+- **功能**: 获取当前弹药数量
+- **响应**:
+  ```json
+  {
+    "success": true,
+    "message": "Success",
+    "data": 30
+  }
+  ```
+
+### 3. 弹药更换接口
+- **路径**: `/api/v1/ammo/change`
+- **方法**: POST
+- **功能**: 更换弹药
+- **响应**:
+  ```json
+  {
+    "success": true,
+    "message": "Success"
+  }
+  ```
+
+### 4. 生命值查询接口
+- **路径**: `/api/v1/health`
+- **方法**: GET
+- **功能**: 获取当前生命值
+- **响应**:
+  ```json
+  {
+    "success": true,
+    "message": "Success",
+    "data": {
+      "health": 100
+    }
+  }
+  ```
+
 ## 测试验证
 
 ### 1. 功能测试
-- ✅ 健康检查接口
-- ✅ 名称查询接口
-- ✅ 名称设置接口
-- ✅ 状态查询接口
+- ✅ 射击接口
+- ✅ 弹药查询接口
+- ✅ 弹药更换接口
+- ✅ 生命值查询接口
 
 ### 2. 错误处理测试
-- ✅ 空名称验证
-- ✅ 无效JSON处理
 - ✅ 不支持方法处理
+- ✅ 射击失败处理
 - ✅ 连接错误处理
 
 ### 3. 并发测试
@@ -145,24 +206,27 @@ type RobotClient struct {
 2. **高效**: 使用goroutine处理请求
 3. **安全**: 读写锁保护共享状态
 4. **易用**: RESTful API设计
+5. **实时**: 直接调用机器人接口
 
 ### 限制
-1. **内存存储**: 名称设置仅在内存中
+1. **依赖机器人**: 需要机器人接口正常工作
 2. **单机部署**: 默认只监听localhost
 3. **无认证**: 当前版本无访问控制
 
 ## 扩展建议
 
 ### 短期扩展
-1. **配置持久化**: 将名称保存到配置文件
+1. **状态持久化**: 保存机器人状态到数据库
 2. **端口配置**: 支持命令行参数指定端口
 3. **日志增强**: 添加API访问日志
+4. **错误重试**: 添加射击失败重试机制
 
 ### 长期扩展
 1. **认证机制**: 添加API密钥或JWT认证
 2. **限流控制**: 实现请求频率限制
 3. **监控指标**: 添加API调用统计
 4. **负载均衡**: 支持多实例部署
+5. **WebSocket**: 添加实时状态推送
 
 ## 部署说明
 
@@ -190,14 +254,27 @@ curl http://localhost:8080/api/v1/health
 pkill -f robot_client
 ```
 
+## 安全考虑
+
+### 当前安全措施
+1. **方法验证**: 严格验证HTTP方法
+2. **错误处理**: 不暴露内部错误信息
+3. **并发保护**: 使用读写锁保护共享资源
+
+### 建议改进
+1. **访问控制**: 添加API密钥认证
+2. **请求限流**: 防止API滥用
+3. **HTTPS**: 在生产环境使用HTTPS
+4. **输入验证**: 添加请求参数验证
+
 ## 总结
 
-本次实现提供了一个简洁、高效的HTTP API接口，具有以下特点：
+本次实现提供了一个专注于机器人控制的HTTP API接口，具有以下特点：
 
-1. **功能完整**: 覆盖了基本的查询和设置需求
-2. **易于使用**: 标准的RESTful API设计
-3. **安全可靠**: 并发安全和错误处理
-4. **文档完善**: 提供了详细的使用说明和示例
-5. **测试充分**: 包含多种测试方式和脚本
+1. **功能专注**: 专门针对机器人控制操作
+2. **实时响应**: 直接调用机器人接口
+3. **易于使用**: 标准的RESTful API设计
+4. **安全可靠**: 并发安全和错误处理
+5. **文档完善**: 提供了详细的使用说明和示例
 
-这个API接口为机器人客户端提供了便捷的外部访问能力，便于集成到其他系统中。 
+这个API接口为机器人客户端提供了便捷的外部控制能力，便于集成到游戏系统或其他控制界面中。 

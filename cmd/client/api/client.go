@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -36,11 +35,15 @@ func NewClient(config *config.Config) *Client {
 	}
 
 	// 创建WebSocket服务
+	client.apiServer = NewAPIServer(client, config.API.Port) // 默认端口8080
 	client.wsService = services.NewWebSocketClient(config.WebSocket.URL, config.GetWriteTimeout(), config.GetReadTimeout(), config.GetConnectTimeout(), config.GetReconnectDelay())
-	client.robot = robot.NewSimpleRobot(config)
+	if config.Robot.ClientType == "mock" {
+		client.robot = robot.NewMockRobot(config)
+	} else {
+		client.robot = robot.NewSimpleRobot(config)
+	}
 
 	// 创建API服务器
-	client.apiServer = NewAPIServer(client, 8080) // 默认端口8080
 
 	// 设置WebSocket服务回调
 	client.wsService.SetCallbacks(
@@ -60,15 +63,21 @@ func (r *Client) Start() error {
 		Str("server", r.config.WebSocket.URL).
 		Msg("Starting robot client")
 
-	// 启动WebSocket服务
-	if err := r.wsService.Start(); err != nil {
-		return err
+	if r.config.WebSocket.Enable {
+		// 启动WebSocket服务
+		if err := r.wsService.Start(); err != nil {
+			return err
+		}
 	}
 
 	// 启动API服务器（在goroutine中运行）
 	go func() {
-		if err := r.apiServer.Start(); err != nil {
-			log.Error().Err(err).Msg("API server failed")
+		if r.config.API.Enable {
+			if err := r.apiServer.Start(); err != nil {
+				log.Error().Err(err).Msg("API server failed")
+			}
+		} else {
+			log.Error().Msg("API server is not enabled")
 		}
 	}()
 
@@ -136,14 +145,6 @@ func (r *Client) OnMessage(message []byte) error {
 		Int64("sequence", msg.Sequence).
 		Msg("Received message")
 
-	err := r.robot.HandleMessage(&msg)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("ucode", r.config.Robot.UCode).
-			Msg("Handle message failed")
-	}
-
 	return nil
 }
 
@@ -195,31 +196,7 @@ func (r *Client) sendPing() error {
 
 // sendStatusUpdate 发送状态更新
 func (r *Client) sendStatusUpdate() error {
-	var status robot.RobotState
-
-	if r.config.Status.EnableSimulation {
-		// 模拟机器人状态
-		status = robot.RobotState{
-			BasePosition:    [3]float64{rand.Float64() * 10, rand.Float64() * 10, 0},
-			BaseOrientation: [4]float64{0, 0, 0, 1},
-			BatteryLevel:    rand.Float64() * 100,
-			Temperature:     20 + rand.Float64()*30,
-			Status:          "idle",
-			ErrorCode:       0,
-			ErrorMessage:    "",
-		}
-	} else {
-		// 使用固定状态
-		status = robot.RobotState{
-			BasePosition:    [3]float64{0, 0, 0},
-			BaseOrientation: [4]float64{0, 0, 0, 1},
-			BatteryLevel:    100.0,
-			Temperature:     25.0,
-			Status:          "idle",
-			ErrorCode:       0,
-			ErrorMessage:    "",
-		}
-	}
+	var status = r.robot.GetState()
 
 	msg := models.WebSocketMessage{
 		Type:       models.WSMessageTypeRequest,

@@ -4,11 +4,21 @@
 robot:
   ucode: "123456"                    # 机器人唯一标识
   version: "1.0.0"                      # 版本号
-  client_type: "robot"                  # 客户端类型
-  operator_type: "remote"              # 机器人模型, 远程控制， 遥控器控制 TODO
+  client_type: "mock"                  # 客户端类型 Mock, Simple
+  operator_type: "remote"              # 机器人模型 远程控制， 遥控器控制 TODO
+
+mock_robot: # 模拟机器人配置 client_type: "mock" 时生效
+  ammo_count: 100
+  ammo_capacity: 50
+  health: 0
+
+api:
+  enable: true
+  port: 8081
 
 # 服务器配置
 websocket:
+  enable: false                          # 是否启用WebSocket
   url: "ws://localhost:8000/ws/control" # WebSocket服务器地址
   connect_timeout: 30                   # 连接超时时间（秒）
   read_timeout: 30                      # 读取超时时间（秒）
@@ -22,7 +32,7 @@ heartbeat:
 # 状态上报配置
 status:
   interval: 10                          # 状态上报间隔（秒）
-  enable_simulation: true               # 启用状态模拟
+  enable_simulation: false               # 启用状态模拟
 
 # 日志配置
 logging:
