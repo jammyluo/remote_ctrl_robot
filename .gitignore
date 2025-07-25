@@ -91,6 +91,7 @@ docs/_build/
 # 本地开发文件
 local/
 dev/
+client_demo/
 
 # 缓存文件
 .cache/
@@ -105,6 +106,7 @@ dev/
 *.pid
 *.seed
 *.pid.lock
+*.tgz
 
 # 项目特定屏蔽规则
 
